@@ -66,6 +66,12 @@ def config_contains_secret(value: object) -> bool:
 def validate_generation_config(
     config: dict[str, object], provider: str = "", model_id: str = ""
 ) -> None:
+    api_mode = config.get("api_mode")
+    if provider == "volcengine" and api_mode is not None and api_mode not in {
+        "standard",
+        "agent_plan",
+    }:
+        raise HTTPException(400, "火山方舟 API 通道必须是普通按量或 Agent Plan")
     size = config.get("size")
     if size is not None and (not isinstance(size, str) or not 1 <= len(size) <= 64):
         raise HTTPException(400, "输出尺寸格式无效")
@@ -118,6 +124,8 @@ def list_models() -> list[dict[str, object]]:
         "volcengine": {
             "api_key_url": "https://console.volcengine.com/ark/region:ark+cn-beijing/apikey",
             "provider_console_url": "https://console.volcengine.com/ark",
+            "agent_plan_api_key_url": "https://console.volcengine.com/ark/region:ark+cn-beijing/openManagement?advancedActiveKey=agentPlan",
+            "agent_plan_documentation_url": "https://www.volcengine.com/docs/82379/1666945?lang=zh",
         },
         "alibaba": {
             "api_key_url": "https://help.aliyun.com/zh/model-studio/get-api-key",
@@ -138,6 +146,12 @@ def list_models() -> list[dict[str, object]]:
             "unit_price_cny": str(item.unit_price_cny),
             "price_checked_on": item.price_checked_on,
             "documentation_url": item.documentation_url,
+            "support_level": (
+                "optimized"
+                if item.provider == "volcengine"
+                and item.model == "doubao-seedream-5-0-lite-260128"
+                else "testing"
+            ),
             **provider_links.get(item.provider, {}),
         }
         for item in model_registry.list()

@@ -43,6 +43,7 @@ const profileForm = reactive({
   id: '', provider: 'volcengine', display_name: 'Seedream 5.0 Lite',
   base_url: 'https://ark.cn-beijing.volces.com', workspace_id: '',
   model_id: 'doubao-seedream-5-0-lite-260128', api_key: '', remember_secret: true,
+  api_mode: 'standard',
   max_outputs: 4, default_size: '1024x1024', unit_price_cny: 0,
   size: '2048x2048', watermark: false, seed: undefined as number | undefined,
   guidance_scale: undefined as number | undefined, prompt_extend: false, thinking_mode: true,
@@ -108,6 +109,23 @@ const rangeMarks = computed(() => {
   return last === 1 ? { 1: '第 1 题' } : { 1: '第 1 题', [last]: `第 ${last} 题` }
 })
 const isSeedream = computed(() => profileForm.provider === 'volcengine')
+const effectiveVolcengineEndpoint = computed(() => {
+  const host = profileForm.base_url.replace(/\/+$/, '')
+  const path = profileForm.api_mode === 'agent_plan'
+    ? '/api/plan/v3/images/generations'
+    : '/api/v3/images/generations'
+  return `${host}${path}`
+})
+const activeApiKeyUrl = computed(() => (
+  isSeedream.value && profileForm.api_mode === 'agent_plan'
+    ? formModel.value?.agent_plan_api_key_url
+    : formModel.value?.api_key_url
+))
+const activeDocumentationUrl = computed(() => (
+  isSeedream.value && profileForm.api_mode === 'agent_plan'
+    ? formModel.value?.agent_plan_documentation_url
+    : formModel.value?.documentation_url
+))
 const customGuidance = computed({
   get: () => profileForm.guidance_scale != null,
   set: (enabled: boolean) => { profileForm.guidance_scale = enabled ? 5.5 : undefined },
@@ -326,6 +344,7 @@ function editProfile(profile: ProviderProfile) {
     id: profile.id, provider: profile.provider, display_name: profile.display_name,
     base_url: profile.base_url, workspace_id: profile.workspace_id || '', model_id: profile.model_id,
     api_key: '', remember_secret: profile.remember_secret,
+    api_mode: profile.config.api_mode === 'agent_plan' ? 'agent_plan' : 'standard',
     max_outputs: Number(profile.config.max_outputs || 4),
     default_size: String(profile.config.default_size || '1024x1024'),
     unit_price_cny: Number(profile.config.unit_price_cny || 0),
@@ -394,6 +413,7 @@ function newPresetProfile() {
     id: '', provider: model?.provider || 'volcengine', display_name: model?.display_name || 'Seedream 5.0 Lite',
     base_url: model?.provider === 'alibaba' ? 'https://dashscope.aliyuncs.com' : 'https://ark.cn-beijing.volces.com',
     workspace_id: '', model_id: model?.model || 'doubao-seedream-5-0-lite-260128', api_key: '', remember_secret: true,
+    api_mode: 'standard',
     max_outputs: 4, default_size: '1024x1024', unit_price_cny: 0,
     size: model?.default_size || '2048x2048', watermark: false, seed: undefined,
     guidance_scale: undefined, prompt_extend: false, thinking_mode: true,
@@ -407,6 +427,7 @@ function newCustomProfile() {
   Object.assign(profileForm, {
     id: '', provider: 'custom', display_name: '自定义 OpenAI 兼容服务', base_url: '', workspace_id: '',
     model_id: '', api_key: '', remember_secret: true, max_outputs: 4,
+    api_mode: 'standard',
     default_size: '1024x1024', unit_price_cny: 0,
     size: '1024x1024', watermark: false, seed: undefined,
     guidance_scale: undefined, prompt_extend: false, thinking_mode: true,
@@ -434,6 +455,7 @@ async function saveProfile() {
       supports_image_edit: true,
     })
     if (profileForm.provider === 'volcengine') Object.assign(config, {
+      api_mode: profileForm.api_mode,
       seed: profileForm.seed ?? null,
       guidance_scale: profileForm.guidance_scale ?? null,
     })
@@ -647,6 +669,12 @@ async function openExportFolder() {
   catch (error) { showError(error) }
 }
 
+async function openDirectory(path?: string) {
+  if (!path) return
+  try { await api('/system/directory/open', jsonBody({ path })) }
+  catch (error) { showError(error) }
+}
+
 let polling = 0
 let ticking = 0
 onMounted(async () => {
@@ -757,6 +785,12 @@ onBeforeUnmount(() => {
             <div><span>02 / PRODUCTION DESK</span><b>{{ completedCount }}/{{ questions.length }} 已完成</b></div>
             <el-input v-model="search" placeholder="搜索题号 / 标题 / 答案" clearable />
             <el-button type="primary" @click="openRange">选择范围并生成</el-button>
+          </div>
+          <div class="output-location-strip">
+            <span>GENERATED FILES</span>
+            <b>候选图片实时保存到</b>
+            <code :title="project.candidate_images_directory">{{ project.candidate_images_directory }}</code>
+            <el-button plain @click="openDirectory(project.candidate_images_directory)">打开图片文件夹</el-button>
           </div>
           <div v-if="batchProgress" class="batch-progress-float" :class="batchProgress.status">
             <div class="batch-progress-title">
@@ -870,19 +904,39 @@ onBeforeUnmount(() => {
               </div>
               <label>已验证模型</label>
               <el-select v-if="profileForm.provider !== 'custom'" v-model="profileForm.model_id" style="width: 100%" @change="chooseModel">
-                <el-option v-for="model in models" :key="`${model.provider}${model.model}`" :label="`${model.display_name} · ${model.default_size}`" :value="model.model" />
+                <el-option v-for="model in models" :key="`${model.provider}${model.model}`" :label="`${model.display_name} · ${model.default_size} · ${model.support_level === 'optimized' ? '已特化' : '测试适配'}`" :value="model.model" />
               </el-select>
+              <div v-if="formModel" class="support-level-note" :class="formModel.support_level">
+                <b>{{ formModel.support_level === 'optimized' ? '当前重点特化' : '当前为测试适配' }}</b>
+                <span>{{ formModel.support_level === 'optimized' ? 'Seedream 5.0 Lite 已完成尺寸、组图、图生图、错误处理与双接口适配。' : '已实现基础调用，但不同账号、地域和厂商版本仍可能存在差异，请先小范围试跑。' }}</span>
+              </div>
               <template v-else>
                 <label>服务名称</label><el-input v-model="profileForm.display_name" />
                 <label>自定义模型 ID</label><el-input v-model="profileForm.model_id" placeholder="vendor-model-id" />
                 <div class="inline-fields"><div><label>最多候选</label><el-input-number v-model="profileForm.max_outputs" :min="1" :max="15" /></div><div><label>默认尺寸</label><el-input v-model="profileForm.default_size" /></div></div>
               </template>
               <div v-if="formModel" class="official-links">
-                <a v-if="formModel.api_key_url" :href="formModel.api_key_url" target="_blank" rel="noopener noreferrer"><b>获取 API Key</b><span>打开厂商官方页面 ↗</span></a>
-                <a v-if="formModel.documentation_url" :href="formModel.documentation_url" target="_blank" rel="noopener noreferrer"><b>模型 API 文档</b><span>{{ formModel.display_name }} ↗</span></a>
+                <a v-if="activeApiKeyUrl" :href="activeApiKeyUrl" target="_blank" rel="noopener noreferrer"><b>获取 API Key</b><span>{{ isSeedream && profileForm.api_mode === 'agent_plan' ? '创建 Agent Plan 专属 Key' : '打开厂商官方页面' }} ↗</span></a>
+                <a v-if="activeDocumentationUrl" :href="activeDocumentationUrl" target="_blank" rel="noopener noreferrer"><b>模型 API 文档</b><span>{{ formModel.display_name }} ↗</span></a>
                 <a v-if="formModel.provider_console_url" :href="formModel.provider_console_url" target="_blank" rel="noopener noreferrer"><b>厂商控制台</b><span>额度与账单 ↗</span></a>
               </div>
-              <label>API 地址</label><el-input v-model="profileForm.base_url" placeholder="https://..." />
+              <div v-if="isSeedream" class="api-mode-panel">
+                <div class="advanced-title"><span>BILLING CHANNEL</span><b>火山方舟调用通道</b></div>
+                <div class="api-mode-options" role="radiogroup" aria-label="火山方舟调用通道">
+                  <button type="button" :class="{ active: profileForm.api_mode === 'standard' }" @click="profileForm.api_mode = 'standard'">
+                    <b>普通按量 API</b><span>按火山方舟标准图片调用计费</span>
+                  </button>
+                  <button type="button" :class="{ active: profileForm.api_mode === 'agent_plan' }" @click="profileForm.api_mode = 'agent_plan'">
+                    <b>Agent Plan 套餐 API</b><span>消耗已订阅套餐的 AFP 额度</span>
+                  </button>
+                </div>
+                <div class="api-endpoint-preview" :class="profileForm.api_mode">
+                  <span>{{ profileForm.api_mode === 'agent_plan' ? '套餐接口' : '按量接口' }}</span><code>{{ effectiveVolcengineEndpoint }}</code>
+                </div>
+                <p v-if="profileForm.api_mode === 'agent_plan'" class="api-mode-warning"><b>请使用 Agent Plan 控制台创建的专属 API Key。</b> 官方明确提示：套餐用户若调用普通 <code>/api/v3</code> 图片接口，会产生套餐外按量费用。</p>
+                <p v-else class="api-mode-standard-note">未订阅 Agent Plan，或希望使用普通模型按量计费时选择此项。</p>
+              </div>
+              <label>{{ isSeedream ? 'API 主机（通常无需修改）' : 'API 地址' }}</label><el-input v-model="profileForm.base_url" placeholder="https://..." />
               <label v-if="profileForm.provider === 'alibaba'">Workspace ID（可选）</label><el-input v-if="profileForm.provider === 'alibaba'" v-model="profileForm.workspace_id" />
               <div class="advanced-controls" v-if="profileForm.provider !== 'custom'">
                 <div class="advanced-title"><span>ASPECT & MODEL CONTROLS</span><b>比例与当前模型专属参数</b></div>
@@ -1000,10 +1054,10 @@ onBeforeUnmount(() => {
         <div class="section-title"><span>05 / ABOUT</span><h1>关于 PairForge</h1><p>题意先立，双图后成；让一整套题库的画面生产保持有序、可续、可追溯。</p></div>
         <div class="about-grid">
           <article class="about-intro">
-            <span>PAIRFORGE / {{ systemInfo?.version || '0.2.0' }}</span>
+            <span>PAIRFORGE / {{ systemInfo?.version || '0.3.0' }}</span>
             <h2>{{ systemInfo?.description || '把题库中的双图构想，可靠地锻造成可复用的成对画面。' }}</h2>
             <p>PairForge 是本地运行的双图题库生图工作台。它坚持同题图一先生成并确定，随后才让图二引用该图继续创作；题目之间、模型之间和 API Key 之间都保持清晰边界。</p>
-            <div class="about-version"><b>VERSION</b><strong>{{ systemInfo?.version || '0.2.0' }}</strong><em>Windows · Local First</em></div>
+            <div class="about-version"><b>VERSION</b><strong>{{ systemInfo?.version || '0.3.0' }}</strong><em>Windows · Local First</em></div>
           </article>
           <a class="repository-card" :href="systemInfo?.repository_url || 'https://github.com/kaguraaya/PairForge'" target="_blank" rel="noopener noreferrer">
             <span>OPEN SOURCE REPOSITORY</span><b>kaguraaya / PairForge</b><p>查看源码、模板、构建说明与后续版本</p><i>↗</i>
@@ -1011,7 +1065,10 @@ onBeforeUnmount(() => {
           <article class="storage-card">
             <header><span>PORTABLE STORAGE</span><h2>数据与程序放在一起</h2></header>
             <div><b>数据目录</b><code>{{ systemInfo?.data_directory || '正在读取…' }}</code></div>
+            <div><b>项目图片</b><code>{{ systemInfo?.projects_directory || '正在读取…' }}</code></div>
             <div><b>缓存目录</b><code>{{ systemInfo?.cache_directory || '正在读取…' }}</code></div>
+            <p>生成中的候选图位于每个项目的 <code>assets\q1_candidates</code> 与 <code>assets\q2_candidates</code>；点击“成品导出”后，可直接上传的平铺图片位于该项目 <code>exports\时间批次\final_images</code>。工作台顶部会显示当前项目的精确路径。</p>
+            <div class="storage-actions"><el-button type="primary" plain @click="openDirectory(systemInfo?.data_directory)">打开数据目录</el-button><el-button plain @click="openDirectory(systemInfo?.projects_directory)">打开项目图片目录</el-button></div>
             <p>数据库、候选图与成品不会被“清除缓存”删除。若移动软件，请将 EXE 与同级 <code>PairForge_Data</code> 文件夹一起移动。</p>
           </article>
           <article class="cache-card">
@@ -1084,7 +1141,7 @@ onBeforeUnmount(() => {
 .section-title { display: grid; grid-template-columns: 170px 1fr; border-bottom: 1px solid var(--ink); padding-bottom: 24px; margin-bottom: 28px; }.section-title h1 { margin: 0; font: 800 clamp(34px,4vw,58px)/1 Rockwell,"FZYaoti",serif; }.section-title p { grid-column: 2; margin: 10px 0 0; color: var(--muted); }
 .dropzone { height: 230px; border: 1px dashed var(--ink); display: flex; align-items: center; justify-content: center; gap: 36px; background: var(--surface-glass); cursor: pointer; transition: .2s; }.dropzone.dragging,.dropzone:hover { background: var(--surface-hover); border-color: var(--signal); }.dropzone input { display: none; }.drop-index { font: 900 22px/1 Rockwell,serif; color: var(--signal); text-align: center; }.dropzone b { font: 800 28px Rockwell,"FZYaoti",serif; }.dropzone p { color: var(--muted); }
 .preview-board { margin-top: 24px; border: 1px solid var(--ink); background: var(--panel); }.metrics { display: grid; grid-template-columns: repeat(4,1fr); border-bottom: 1px solid var(--ink); }.metrics div { padding: 18px; border-right: 1px solid var(--line); }.metrics span { display: block; font-size: 11px; color: var(--muted); }.metrics b { font: 800 36px Rockwell,serif; }.metrics .warn b { color: var(--warn); }.metrics .bad b { color: var(--bad); }.preview-table>div { display: grid; grid-template-columns: 70px 1fr 180px 100px; padding: 11px 16px; border-bottom: 1px solid var(--line); font-size: 13px; }.preview-table em { font-style: normal; }.preview-table i { font-style: normal; color: var(--signal); font-size: 11px; }.preview-table>p { padding: 10px 16px; color: var(--muted); }.issues { padding: 10px 16px; background: var(--surface-warn); }.issues p { margin: 6px 0; font-size: 12px; }.issues b { margin-right: 12px; color: var(--bad); }.confirm-strip { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 18px; padding: 18px; border-top: 1px solid var(--ink); }.confirm-strip span { color: var(--muted); font-size: 12px; }
-.workbench-page { height: calc(100vh - 76px); overflow: hidden; }.workbench-toolbar { height: 60px; padding: 11px 16px; border-bottom: 1px solid var(--ink); display: flex; align-items: center; gap: 16px; }.workbench-toolbar>div:first-child { display: flex; flex-direction: column; min-width: 180px; }.workbench-toolbar .el-input { width: 280px; margin-left: auto; }.workbench-grid { height: calc(100% - 60px); display: grid; grid-template-columns: 230px minmax(500px,1fr) 300px; }.workbench-page.has-batch-progress .workbench-grid { height: calc(100% - 140px); }.batch-progress-float { height: 80px; display: grid; grid-template-columns: 210px minmax(250px,1fr) auto auto; align-items: center; gap: 18px; padding: 10px 18px; border-bottom: 1px solid var(--ink); background: var(--masthead); box-shadow: 0 8px 18px rgba(0,0,0,.14); position: relative; z-index: 9; }.batch-progress-float::before { content: ''; position: absolute; inset: 0 auto 0 0; width: 5px; background: var(--signal); }.batch-progress-float.completed::before { background: var(--good); }.batch-progress-float.failed::before,.batch-progress-float.partial::before { background: var(--bad); }.batch-progress-title { display: flex; flex-direction: column; gap: 2px; }.batch-progress-title>span { color: var(--signal); font: 700 8px monospace; letter-spacing: .1em; }.batch-progress-title>b { font-size: 13px; }.batch-progress-title>small { color: var(--muted); font-size: 9px; }.batch-progress-bar>div { display: flex; justify-content: space-between; margin-bottom: 6px; }.batch-progress-bar b { font-size: 11px; }.batch-progress-bar span { color: var(--muted); font-size: 9px; }.batch-progress-bar :deep(.el-progress-bar__inner) { background: var(--signal); }.batch-progress-float.completed .batch-progress-bar :deep(.el-progress-bar__inner) { background: var(--good); }.batch-progress-metrics { display: flex; gap: 11px; }.batch-progress-metrics span { color: var(--muted); font-size: 8px; text-align: center; white-space: nowrap; }.batch-progress-metrics b { display: block; color: var(--ink); font: 800 16px Rockwell,serif; }.batch-progress-metrics .bad,.batch-progress-metrics .bad b { color: var(--bad); }.batch-progress-metrics .cooldown,.batch-progress-metrics .cooldown b { color: var(--warn); }.batch-progress-actions { min-width: 90px; display: flex; flex-direction: column; align-items: stretch; gap: 3px; }.batch-progress-actions small { color: var(--warn); font-size: 7px; text-align: center; }
+.workbench-page { height: calc(100vh - 76px); overflow: hidden; }.workbench-toolbar { height: 60px; padding: 11px 16px; border-bottom: 1px solid var(--ink); display: flex; align-items: center; gap: 16px; }.workbench-toolbar>div:first-child { display: flex; flex-direction: column; min-width: 180px; }.workbench-toolbar .el-input { width: 280px; margin-left: auto; }.workbench-grid { height: calc(100% - 104px); display: grid; grid-template-columns: 230px minmax(500px,1fr) 300px; }.workbench-page.has-batch-progress .workbench-grid { height: calc(100% - 184px); }.batch-progress-float { height: 80px; display: grid; grid-template-columns: 210px minmax(250px,1fr) auto auto; align-items: center; gap: 18px; padding: 10px 18px; border-bottom: 1px solid var(--ink); background: var(--masthead); box-shadow: 0 8px 18px rgba(0,0,0,.14); position: relative; z-index: 9; }.batch-progress-float::before { content: ''; position: absolute; inset: 0 auto 0 0; width: 5px; background: var(--signal); }.batch-progress-float.completed::before { background: var(--good); }.batch-progress-float.failed::before,.batch-progress-float.partial::before { background: var(--bad); }.batch-progress-title { display: flex; flex-direction: column; gap: 2px; }.batch-progress-title>span { color: var(--signal); font: 700 8px monospace; letter-spacing: .1em; }.batch-progress-title>b { font-size: 13px; }.batch-progress-title>small { color: var(--muted); font-size: 9px; }.batch-progress-bar>div { display: flex; justify-content: space-between; margin-bottom: 6px; }.batch-progress-bar b { font-size: 11px; }.batch-progress-bar span { color: var(--muted); font-size: 9px; }.batch-progress-bar :deep(.el-progress-bar__inner) { background: var(--signal); }.batch-progress-float.completed .batch-progress-bar :deep(.el-progress-bar__inner) { background: var(--good); }.batch-progress-metrics { display: flex; gap: 11px; }.batch-progress-metrics span { color: var(--muted); font-size: 8px; text-align: center; white-space: nowrap; }.batch-progress-metrics b { display: block; color: var(--ink); font: 800 16px Rockwell,serif; }.batch-progress-metrics .bad,.batch-progress-metrics .bad b { color: var(--bad); }.batch-progress-metrics .cooldown,.batch-progress-metrics .cooldown b { color: var(--warn); }.batch-progress-actions { min-width: 90px; display: flex; flex-direction: column; align-items: stretch; gap: 3px; }.batch-progress-actions small { color: var(--warn); font-size: 7px; text-align: center; }
 .question-list { border-right: 1px solid var(--ink); overflow-y: auto; background: var(--paper-deep); }.question-list button { width: 100%; min-height: 64px; display: grid; grid-template-columns: 42px 1fr; grid-template-rows: 1fr auto; text-align: left; border: 0; border-bottom: 1px solid var(--line); color: var(--ink); background: transparent; padding: 11px; }.question-list button>b { grid-row: 1/3; font: 800 18px Rockwell,serif; color: var(--muted); }.question-list button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }.question-list button i { font-style: normal; font-size: 10px; color: var(--muted); }.question-list button i.good { color: var(--good); }.question-list button i.warn { color: var(--warn); }.question-list button i.bad { color: var(--bad); }.question-list button:hover,.question-list button.active { background: var(--panel); }.question-list button.active { border-left: 5px solid var(--signal); padding-left: 6px; }
 .canvas { min-width: 0; overflow-y: auto; padding: 20px; background: var(--panel); }.canvas>header { display: flex; align-items: baseline; gap: 12px; border-bottom: 1px solid var(--line); padding-bottom: 14px; }.canvas>header>span { font: 800 13px monospace; color: var(--signal); }.canvas>header h2 { margin: 0; font: 800 24px Rockwell,"FZYaoti",serif; }.canvas>header em { margin-left: auto; font-style: normal; font-size: 12px; color: var(--muted); }.image-columns { display: grid; grid-template-columns: 1fr 42px 1fr; min-height: 500px; padding-top: 18px; }.stage-label { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }.stage-label b { font: 800 11px monospace; }.stage-label span { font-size: 10px; color: var(--muted); }.dependency-arrow { display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--signal); }.dependency-arrow b { font-size: 28px; }.dependency-arrow span { writing-mode: vertical-rl; font-size: 9px; letter-spacing: .14em; }.image-stage.locked { opacity: .65; }.candidate-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; }.candidate-grid article { position: relative; aspect-ratio: 4/3; border: 1px solid var(--line); background: var(--image-well); overflow: hidden; }.candidate-grid article.selected { outline: 3px solid var(--good); outline-offset: -3px; }.candidate-grid article.stale { filter: grayscale(1); opacity: .58; }.candidate-grid img { width: 100%; height: 100%; object-fit: contain; display: block; }.candidate-grid article>span { position: absolute; top: 6px; left: 6px; background: var(--solid); color: var(--on-solid); padding: 3px 5px; font: 700 9px monospace; }.candidate-grid article>em { position: absolute; bottom: 6px; left: 6px; padding: 4px 6px; color: var(--on-solid); background: var(--overlay); font: 7px monospace; font-style: normal; }.candidate-grid article>b,.candidate-grid article>button { position: absolute; bottom: 6px; right: 6px; border: 0; padding: 6px 8px; background: var(--good); color: white; font-size: 10px; }.candidate-grid article>button { background: var(--signal); }.image-empty { min-height: 310px; border: 1px dashed var(--line); display: grid; place-content: center; text-align: center; }.image-empty>span { font: 900 90px/.8 Rockwell,serif; color: var(--paper-deep); }.image-empty p { color: var(--muted); line-height: 1.7; font-size: 12px; }.reference-chip { display: flex; align-items: center; gap: 8px; padding: 6px; border: 1px solid var(--line); margin-bottom: 8px; font-size: 9px; color: var(--muted); }.reference-chip img { width: 36px; height: 28px; object-fit: contain; }
 .prompt-panel { border-left: 1px solid var(--ink); background: var(--paper-deep); overflow-y: auto; padding: 15px; }.panel-heading { display: flex; flex-direction: column; border-bottom: 1px solid var(--ink); padding-bottom: 12px; }.panel-heading span { font: 700 9px monospace; color: var(--signal); }.panel-heading b { margin-top: 5px; }.prompt-block { margin: 15px 0; }.prompt-block label { font-size: 10px; font-weight: 800; color: var(--muted); }.prompt-block p,details pre { font: 12px/1.65 "Microsoft YaHei",sans-serif; white-space: pre-wrap; max-height: 155px; overflow: auto; }.prompt-block.suffix { padding: 10px; background: var(--panel); }.prompt-block.suffix p { color: var(--cyan); }.prompt-panel summary { font-size: 11px; color: var(--signal); cursor: pointer; }.prompt-panel pre { padding: 8px; background: var(--solid); color: var(--on-solid); }.rule { border-top: 1px solid var(--ink); margin: 20px 0; }
@@ -1105,5 +1162,9 @@ onBeforeUnmount(() => {
 .range-form { max-height: 78vh; overflow-y: auto; padding-right: 5px; }
 .about-grid { display: grid; grid-template-columns: 1.2fr .8fr; gap: 20px; }.about-grid>article,.repository-card { border: 1px solid var(--ink); background: var(--panel); box-shadow: 8px 8px 0 var(--paper-deep); padding: 26px; }.about-intro { grid-row: span 2; display: flex; flex-direction: column; }.about-intro>span,.repository-card>span,.storage-card header>span,.cache-card>span { color: var(--signal); font: 800 11px monospace; letter-spacing: .13em; }.about-intro h2 { margin: 30px 0 16px; max-width: 740px; font: 800 clamp(30px,3.3vw,54px)/1.08 Rockwell,"FZYaoti",serif; }.about-intro>p { max-width: 720px; color: var(--muted); font-size: 14px; line-height: 1.9; }.about-version { margin-top: auto; padding-top: 28px; border-top: 1px solid var(--line); display: grid; grid-template-columns: auto auto 1fr; align-items: baseline; gap: 12px; }.about-version b { color: var(--signal); font: 800 11px monospace; }.about-version strong { font: 900 38px Rockwell,serif; }.about-version em { color: var(--muted); font-style: normal; }.repository-card { position: relative; display: block; min-height: 180px; color: var(--on-solid); background: var(--solid); text-decoration: none; }.repository-card b { display: block; margin-top: 25px; font: 800 26px Rockwell,serif; }.repository-card p { color: var(--muted); font-size: 12px; }.repository-card i { position: absolute; right: 22px; bottom: 18px; color: var(--signal); font: 900 34px Rockwell,serif; font-style: normal; }.repository-card:hover { transform: translate(-2px,-2px); box-shadow: 12px 12px 0 var(--paper-deep); }.storage-card { grid-column: 1/-1; }.storage-card header { display: flex; align-items: baseline; gap: 18px; border-bottom: 1px solid var(--line); padding-bottom: 16px; }.storage-card h2 { margin: 0; font: 800 25px Rockwell,"FZYaoti",serif; }.storage-card>div { display: grid; grid-template-columns: 90px 1fr; gap: 12px; align-items: start; margin-top: 16px; }.storage-card b { font-size: 12px; }.storage-card code { padding: 8px 10px; color: var(--cyan); background: var(--paper-deep); word-break: break-all; font-size: 12px; }.storage-card p,.cache-card p { color: var(--muted); font-size: 12px; line-height: 1.7; }.cache-card>div { display: flex; align-items: baseline; gap: 9px; margin: 24px 0 12px; }.cache-card>div b { font: 900 42px Rockwell,serif; }.cache-card>div em { color: var(--muted); font-style: normal; }.cache-card>div strong { margin-left: auto; color: var(--cyan); font: 800 18px monospace; }
 .brand-mark i,.brand small,.rail button span,.batch-progress-title>span,.batch-progress-metrics span,.batch-progress-actions small,.candidate-grid article>em,.ratio-presets button small { font-size: 10px; }.theme-toggle b,.project-switch em,.serial,.stage-label span,.question-list button i,.prompt-block label,.service-mode button span,.saved-services button,.official-links span,.control-label,.single-output-switch p,.quota-progress b,.export-summary div span,.range-summary>em,.range-summary>p { font-size: 11px; }.batch-progress-title>small,.batch-progress-bar span,.dependency-arrow span,.candidate-grid article>span,.reference-chip,.panel-heading span,.saved-services>span,.saved-services button i,.failure-advice span,.failure-actions a,.advanced-title span,.advanced-controls p,.ratio-presets button span,.ratio-presets button i,.guidance-heading span,.guidance-note,.provider-default-note,.quota-status-strip>span,.quota-status-strip>p,.quota-status-strip>a,.quota-card-head span,.quota-card-head em,.quota-progress span,.quota-cards article>p,.quota-actions button,.credential-editor-title button,.credential-add label,.range-summary>span,.range-slider-heading span,.range-presets button,.parallelism-control span,.parallelism-control p,.quota-ticket>span,.range-preflight>p,.range-preflight>a { font-size: 10px; line-height: 1.45; }
-@media (max-width: 1100px) { .about-grid { grid-template-columns: 1fr; }.about-intro { grid-row: auto; min-height: 430px; }.storage-card { grid-column: auto; } }
+.output-location-strip { height: 44px; display: grid; grid-template-columns: auto auto minmax(180px,1fr) auto; align-items: center; gap: 10px; padding: 6px 16px; border-bottom: 1px solid var(--line); background: var(--paper-deep); }.output-location-strip>span { color: var(--signal); font: 800 10px monospace; letter-spacing: .1em; }.output-location-strip>b { font-size: 11px; }.output-location-strip>code { overflow: hidden; color: var(--cyan); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }.output-location-strip .el-button { min-height: 30px; }
+.support-level-note { display: flex; gap: 12px; margin: 10px 0 14px; padding: 11px 13px; border-left: 4px solid var(--warn); background: var(--paper-deep); }.support-level-note.optimized { border-color: var(--good); }.support-level-note b { color: var(--warn); font-size: 12px; white-space: nowrap; }.support-level-note.optimized b { color: var(--good); }.support-level-note span { color: var(--muted); font-size: 11px; line-height: 1.55; }
+.api-mode-panel { margin: 18px 0; padding: 16px; border: 1px solid var(--ink); background: var(--surface-control); }.api-mode-options { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 13px; }.api-mode-options button { padding: 13px 14px; border: 1px solid var(--line); color: var(--ink); background: var(--panel); text-align: left; cursor: pointer; }.api-mode-options button.active { border: 2px solid var(--signal); padding: 12px 13px; box-shadow: 4px 4px 0 var(--paper-deep); }.api-mode-options b,.api-mode-options span { display: block; }.api-mode-options b { font-size: 13px; }.api-mode-options span { margin-top: 4px; color: var(--muted); font-size: 11px; }.api-endpoint-preview { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: center; margin-top: 12px; padding: 10px 12px; border: 1px solid var(--line); background: var(--paper-deep); }.api-endpoint-preview.agent_plan { border-color: var(--signal); }.api-endpoint-preview span { color: var(--signal); font: 800 10px monospace; }.api-endpoint-preview code { overflow-wrap: anywhere; color: var(--cyan); font-size: 11px; }.api-mode-warning,.api-mode-standard-note { margin: 10px 0 0; font-size: 11px; line-height: 1.6; }.api-mode-warning { padding: 10px 12px; border-left: 4px solid var(--warn); color: var(--muted); background: rgba(211,132,24,.08); }.api-mode-warning b { color: var(--warn); }.api-mode-warning code { color: var(--signal); }.api-mode-standard-note { color: var(--muted); }
+.storage-card>.storage-actions { display: flex; grid-template-columns: none; gap: 10px; }.storage-actions .el-button { margin: 0; }
+@media (max-width: 1100px) { .about-grid { grid-template-columns: 1fr; }.about-intro { grid-row: auto; min-height: 430px; }.storage-card { grid-column: auto; }.output-location-strip { grid-template-columns: auto minmax(160px,1fr) auto; }.output-location-strip>b { display: none; } }
 </style>

@@ -35,6 +35,7 @@ class ProviderConfig:
     api_key: str
     base_url: str
     workspace_id: str | None = None
+    api_mode: str = "standard"
 
 
 @dataclass(frozen=True, slots=True)

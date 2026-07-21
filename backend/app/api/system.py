@@ -1,14 +1,20 @@
 from __future__ import annotations
 
+import os
 import shutil
 from pathlib import Path
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel
 
 from app.meta import APP_DESCRIPTION, APP_NAME, APP_VERSION, REPOSITORY_URL
 
 
 router = APIRouter(prefix="/api/system", tags=["system"])
+
+
+class OpenDirectoryRequest(BaseModel):
+    path: str
 
 
 def cache_usage(cache_dir: Path) -> tuple[int, int]:
@@ -51,6 +57,7 @@ def system_info(request: Request) -> dict[str, object]:
         "description": APP_DESCRIPTION,
         "repository_url": REPOSITORY_URL,
         "data_directory": str(config.data_dir),
+        "projects_directory": str(config.data_dir / "projects"),
         "cache_directory": str(config.cache_dir),
         "cache_file_count": file_count,
         "cache_bytes": total_bytes,
@@ -64,3 +71,30 @@ def clear_cache(request: Request) -> dict[str, object]:
         "cleared_file_count": file_count,
         "cleared_bytes": total_bytes,
     }
+
+
+def is_user_data_directory(path: Path, data_root: Path) -> bool:
+    if path == data_root:
+        return True
+    projects_root = data_root / "projects"
+    if path == projects_root:
+        return True
+    try:
+        relative = path.relative_to(projects_root)
+    except ValueError:
+        return False
+    parts = relative.parts
+    if len(parts) == 1:
+        return True
+    return len(parts) >= 2 and parts[1].lower() in {"assets", "exports"}
+
+
+@router.post("/directory/open")
+def open_directory(body: OpenDirectoryRequest, request: Request) -> dict[str, bool]:
+    data_root = request.app.state.config.data_dir.resolve()
+    path = Path(body.path).expanduser().resolve()
+    if not is_user_data_directory(path, data_root):
+        raise HTTPException(400, "只能打开 PairForge 的数据、候选图或导出目录")
+    path.mkdir(parents=True, exist_ok=True)
+    os.startfile(path)  # type: ignore[attr-defined]
+    return {"opened": True}

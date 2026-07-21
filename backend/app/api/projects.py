@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import func, select
@@ -39,6 +41,8 @@ def get_project(project_id: str, session: Session = Depends(get_session)) -> dic
         "id": project.id,
         "name": project.name,
         "workspace_path": project.workspace_path,
+        "candidate_images_directory": str(Path(project.workspace_path) / "assets"),
+        "exports_directory": str(Path(project.workspace_path) / "exports"),
         "q1_prompt_suffix": project.q1_prompt_suffix,
         "q2_prompt_suffix": project.q2_prompt_suffix,
         "selected_provider_profile_id": project.selected_provider_profile_id,
@@ -58,4 +62,3 @@ def update_prompts(
     project.q2_prompt_suffix = body.q2_prompt_suffix
     session.commit()
     return {"q1_prompt_suffix": project.q1_prompt_suffix, "q2_prompt_suffix": project.q2_prompt_suffix}
-

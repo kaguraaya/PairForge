@@ -136,6 +136,32 @@ async def test_adapters_parse_normalized_images_without_real_network() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("api_mode", "expected_path"),
+    [
+        ("standard", "/api/v3/images/generations"),
+        ("agent_plan", "/api/plan/v3/images/generations"),
+    ],
+)
+async def test_volcengine_uses_selected_billing_channel(
+    api_mode: str, expected_path: str
+) -> None:
+    async def handler(request_: httpx.Request) -> httpx.Response:
+        assert request_.url.path == expected_path
+        return httpx.Response(200, json={"data": [{"b64_json": "AAA"}]})
+
+    provider = VolcengineProvider(
+        ProviderConfig(
+            "secret",
+            "https://ark.cn-beijing.volces.com",
+            api_mode=api_mode,
+        ),
+        httpx.MockTransport(handler),
+    )
+    await provider.generate(request("doubao-seedream-5-0-lite-260128"))
+
+
+@pytest.mark.asyncio
 async def test_custom_openai_compatible_provider_preserves_base_path_prefix() -> None:
     async def handler(request_: httpx.Request) -> httpx.Response:
         assert request_.url == httpx.URL("https://images.example/v1/images/generations")

@@ -78,7 +78,13 @@ async def source_bytes(source) -> bytes:
 
 
 def provider_for(profile: ProviderProfile, api_key: str):
-    config = ProviderConfig(api_key, profile.base_url, profile.workspace_id)
+    profile_config = profile.config or {}
+    config = ProviderConfig(
+        api_key,
+        profile.base_url,
+        profile.workspace_id,
+        api_mode=str(profile_config.get("api_mode", "standard")),
+    )
     if profile.provider == "volcengine":
         return VolcengineProvider(config)
     if profile.provider == "alibaba":

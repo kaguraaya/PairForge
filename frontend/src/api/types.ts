@@ -2,6 +2,9 @@ export interface Project {
   id: string
   name: string
   question_count?: number
+  workspace_path?: string
+  candidate_images_directory?: string
+  exports_directory?: string
   q1_prompt_suffix?: string
   q2_prompt_suffix?: string
   selected_provider_profile_id?: string | null
@@ -20,6 +23,9 @@ export interface ModelInfo {
   documentation_url?: string
   api_key_url?: string
   provider_console_url?: string
+  agent_plan_api_key_url?: string
+  agent_plan_documentation_url?: string
+  support_level: 'optimized' | 'testing'
 }
 
 export interface ProviderProfile {
@@ -165,6 +171,7 @@ export interface SystemInfo {
   description: string
   repository_url: string
   data_directory: string
+  projects_directory: string
   cache_directory: string
   cache_file_count: number
   cache_bytes: number

@@ -6,7 +6,7 @@ const model = (image1: number, image2: number): ModelInfo => ({
   provider: 'test', model: 'test', display_name: 'Test',
   max_text_outputs: image1, max_edit_outputs: image2,
   default_size: '1K', multiple_output_semantics: 'exact',
-  unit_price_cny: '0', price_checked_on: 'test',
+  unit_price_cny: '0', price_checked_on: 'test', support_level: 'testing',
 })
 
 describe('candidate controls', () => {

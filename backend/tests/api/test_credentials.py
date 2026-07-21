@@ -47,6 +47,39 @@ def test_profile_accepts_multiple_write_only_keys(tmp_path) -> None:
     assert b"backup-secret" not in database_bytes
 
 
+def test_volcengine_profile_accepts_only_known_api_modes(tmp_path) -> None:
+    app = create_app(tmp_path / "modes", static_dir=tmp_path / "none")
+    base = {
+        "provider": "volcengine",
+        "display_name": "Seedream",
+        "base_url": "https://ark.cn-beijing.volces.com",
+        "model_id": "doubao-seedream-5-0-lite-260128",
+    }
+    with TestClient(app) as client:
+        agent_plan = client.post(
+            "/api/settings/profiles",
+            json={**base, "config": {"api_mode": "agent_plan"}},
+        )
+        assert agent_plan.status_code == 200
+        assert agent_plan.json()["config"]["api_mode"] == "agent_plan"
+
+        invalid = client.post(
+            "/api/settings/profiles",
+            json={**base, "config": {"api_mode": "unexpected"}},
+        )
+        assert invalid.status_code == 400
+
+
+def test_models_publish_production_support_level(tmp_path) -> None:
+    app = create_app(tmp_path / "models", static_dir=tmp_path / "none")
+    with TestClient(app) as client:
+        models = client.get("/api/settings/models").json()
+    support = {item["model"]: item["support_level"] for item in models}
+    assert support["doubao-seedream-5-0-lite-260128"] == "optimized"
+    assert support["qwen-image-2.0"] == "testing"
+    assert support["wan2.7-image"] == "testing"
+
+
 def test_credential_cannot_be_moved_or_edited_through_another_profile(tmp_path) -> None:
     app = create_app(tmp_path / "cross", static_dir=tmp_path / "none")
     with TestClient(app) as client:

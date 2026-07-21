@@ -1,3 +1,5 @@
+import os
+
 from fastapi.testclient import TestClient
 
 from app.main import create_app
@@ -51,6 +53,13 @@ def test_import_preview_confirm_and_estimate_flow(tmp_path) -> None:
         )
         project_id = confirmed.json()["project_id"]
         assert confirmed.json()["question_count"] == 1
+        project = client.get(f"/api/projects/{project_id}").json()
+        assert project["candidate_images_directory"].endswith(
+            f"projects{os.sep}{project_id}{os.sep}assets"
+        )
+        assert project["exports_directory"].endswith(
+            f"projects{os.sep}{project_id}{os.sep}exports"
+        )
 
         profile = client.post(
             "/api/settings/profiles",

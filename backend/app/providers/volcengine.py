@@ -15,6 +15,16 @@ from app.providers.errors import (
 )
 
 
+SEEDREAM_GENERATION_PATHS = {
+    "standard": "/api/v3/images/generations",
+    "agent_plan": "/api/plan/v3/images/generations",
+}
+
+
+def seedream_generation_path(api_mode: str) -> str:
+    return SEEDREAM_GENERATION_PATHS.get(api_mode, SEEDREAM_GENERATION_PATHS["standard"])
+
+
 def build_seedream_payload(request: GenerationRequest) -> dict[str, object]:
     payload: dict[str, object] = {
         "model": request.model,
@@ -81,7 +91,8 @@ class VolcengineProvider:
                 transport=self.transport,
             ) as client:
                 response = await client.post(
-                    "/api/v3/images/generations", json=build_seedream_payload(request)
+                    seedream_generation_path(self.config.api_mode),
+                    json=build_seedream_payload(request),
                 )
                 response.raise_for_status()
                 return parse_seedream_response(response.json())
