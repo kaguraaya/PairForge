@@ -1055,8 +1055,8 @@ onBeforeUnmount(() => {
         <div class="about-grid">
           <article class="about-intro">
             <span>PAIRFORGE / {{ systemInfo?.version || '0.3.0' }}</span>
-            <h2>{{ systemInfo?.description || '把题库中的双图构想，可靠地锻造成可复用的成对画面。' }}</h2>
-            <p>PairForge 是本地运行的双图题库生图工作台。它坚持同题图一先生成并确定，随后才让图二引用该图继续创作；题目之间、模型之间和 API Key 之间都保持清晰边界。</p>
+            <h2>{{ systemInfo?.description || 'PairForge：面向《这是谐音梗》创意工坊题库制作的批量 AI 配图工具，支持自定义生图 API，简化成对图片的生成与管理流程。' }}</h2>
+            <p>PairForge 服务于《这是谐音梗》创意工坊从题库文档到成对配图成品的制作环节。它坚持同题图一先生成并确定，随后才让图二引用该图继续创作；题目之间、模型之间和 API Key 之间都保持清晰边界。</p>
             <div class="about-version"><b>VERSION</b><strong>{{ systemInfo?.version || '0.3.0' }}</strong><em>Windows · Local First</em></div>
           </article>
           <a class="repository-card" :href="systemInfo?.repository_url || 'https://github.com/kaguraaya/PairForge'" target="_blank" rel="noopener noreferrer">
