@@ -1,0 +1,22 @@
+@import './tokens.css';
+
+* { box-sizing: border-box; }
+html, body, #app { margin: 0; min-width: 1080px; min-height: 100vh; }
+body {
+  background-color: var(--paper);
+  background-image:
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+button, input, textarea { font: inherit; }
+button { cursor: pointer; }
+.el-button { border-radius: 2px !important; font-weight: 700 !important; letter-spacing: .02em; }
+.el-button--primary { --el-button-bg-color: var(--signal); --el-button-border-color: var(--signal); --el-button-hover-bg-color: var(--signal-dark); --el-button-hover-border-color: var(--signal-dark); }
+.el-input__wrapper, .el-textarea__inner, .el-select__wrapper, .el-input-number { border-radius: 2px !important; color: var(--ink) !important; background: var(--panel) !important; box-shadow: 0 0 0 1px var(--line) inset !important; }
+.el-dialog { border-radius: 3px !important; background: var(--panel) !important; box-shadow: 18px 18px 0 rgba(24,32,31,.14) !important; }
+.el-dialog__title { font-family: Rockwell, "FZYaoti", serif; font-weight: 800; }
+.el-message { border-radius: 2px !important; }
+:root[data-theme='dark'] .el-dialog { box-shadow: 18px 18px 0 rgba(0,0,0,.48) !important; }
+:root[data-theme='dark'] .el-button.is-plain { color: var(--ink); background: var(--panel); border-color: var(--line); }
+:root[data-theme='dark'] .el-popper { border-color: var(--line); background: var(--panel); }
