@@ -4,6 +4,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { api, jsonBody } from './api/client'
 import type { BatchProgress, Estimate, ImageAsset, ImportPreview, ModelInfo, Project, ProviderCredential, ProviderProfile, Question, QuotaStatus, SystemInfo } from './api/types'
 import { candidateDefaults, candidateLimits, sizePresets } from './domain/generation'
+import { isExportPending } from './domain/export'
 import { statusLabel, statusTone } from './domain/status'
 import { initialTheme, oppositeTheme, THEME_STORAGE_KEY, type ColorTheme } from './domain/theme'
 
@@ -137,6 +138,7 @@ const q2Assets = computed(() => currentQuestion.value?.assets.filter(a => a.stag
 const selectedImage1 = computed(() => currentQuestion.value?.assets.find(a => a.id === currentQuestion.value?.selected_image1_id))
 const selectedImage2 = computed(() => currentQuestion.value?.assets.find(a => a.id === currentQuestion.value?.selected_image2_id))
 const completedCount = computed(() => questions.value.filter(q => q.state === 'completed').length)
+const exportPendingCount = computed(() => questions.value.filter(isExportPending).length)
 const finalPrompt1 = computed(() => joinPrompt(currentQuestion.value?.image1_prompt, project.value?.q1_prompt_suffix))
 const finalPrompt2 = computed(() => joinPrompt(currentQuestion.value?.image2_prompt, project.value?.q2_prompt_suffix))
 const guidanceMarks = { 1: '更自由', 5.5: '平衡', 10: '更严格' }
@@ -203,6 +205,7 @@ async function refreshProjects() {
 }
 
 async function chooseProject(id: string, target: Section = 'workbench') {
+  exported.value = null
   project.value = await api<Project>(`/projects/${id}`)
   profiles.value = await api<ProviderProfile[]>(`/settings/profiles?project_id=${id}`)
   const selectedProfile = profiles.value.find(
@@ -653,13 +656,27 @@ async function retryCurrent() {
   } catch (error) { showError(error) }
 }
 
+async function retryFailedBatch() {
+  if (!batchProgress.value?.failed_question_count || batchActionBusy.value) return
+  batchActionBusy.value = true
+  try {
+    const result = await api<{ retried_count: number }>(
+      `/generation/batches/${batchProgress.value.id}/retry-failed`,
+      { method: 'POST' },
+    )
+    ElMessage.success(`已将 ${result.retried_count} 个失败任务重新加入队列`)
+    await pollQuestions()
+  } catch (error) { showError(error) } finally { batchActionBusy.value = false }
+}
+
 async function createExport() {
   if (!project.value) return
   busy.value = true
   try {
     const result = await api<{ directory: string; images_directory: string; question_count: number; image_count: number }>('/exports', jsonBody({ project_id: project.value.id }))
     exported.value = result
-    ElMessage.success(`已导出 ${result.question_count} 题，共 ${result.image_count} 张图`)
+    questions.value = await api<Question[]>(`/projects/${project.value.id}/questions`)
+    ElMessage.success(`本次增量导出 ${result.question_count} 题，共 ${result.image_count} 张图`)
   } catch (error) { showError(error) } finally { busy.value = false }
 }
 
@@ -812,8 +829,9 @@ onBeforeUnmount(() => {
               <span v-if="batchProgress.failed_question_count" class="bad"><b>{{ batchProgress.failed_question_count }}</b>失败</span>
             </div>
             <div class="batch-progress-actions">
-              <el-button v-if="batchProgress.can_pause" :loading="batchActionBusy" plain @click="pauseBatch">暂停生成</el-button>
-              <el-button v-else-if="batchProgress.can_resume" :loading="batchActionBusy" type="primary" @click="resumeBatch">继续生成</el-button>
+              <el-button v-if="batchProgress.failed_question_count" size="small" :loading="batchActionBusy" type="danger" @click="retryFailedBatch">一键重试失败项</el-button>
+              <el-button v-if="batchProgress.can_pause" size="small" :loading="batchActionBusy" plain @click="pauseBatch">暂停生成</el-button>
+              <el-button v-if="batchProgress.can_resume" size="small" :loading="batchActionBusy" type="primary" @click="resumeBatch">继续生成</el-button>
               <small v-if="batchProgress.retry_waiting_count">无需手动重试</small>
             </div>
           </div>
@@ -1036,9 +1054,9 @@ onBeforeUnmount(() => {
       </section>
 
       <section v-else-if="section === 'exports'" class="page exports-page">
-        <div class="section-title"><span>04 / FINAL ASSETS</span><h1>成对成品与平铺导出</h1><p>所有图片集中在一个 final_images 文件夹；清单文件放在外层，不按题目拆文件夹。</p></div>
+        <div class="section-title"><span>04 / FINAL ASSETS</span><h1>成对成品与增量导出</h1><p>每次只导出上次成功导出后新增或变更的完整题目；图片和清单直接平铺在短批次目录中。</p></div>
         <template v-if="project">
-          <div class="export-summary"><div><span>已完成题目</span><b>{{ completedCount }}</b><em>/ {{ questions.length }}</em></div><p>命名格式：<code>001__答案__01.png</code> 与 <code>001__答案__02.png</code></p><el-button type="primary" size="large" :disabled="!completedCount" @click="createExport">导出全部完整配对</el-button></div>
+          <div class="export-summary"><div><span>本次待导出题目</span><b>{{ exportPendingCount }}</b><em>/ {{ completedCount }} 已完成</em></div><p>批次目录：<code>exports\20260722-01</code><br>图片命名：<code>001__答案__01.png</code> 与 <code>001__答案__02.png</code></p><el-button type="primary" size="large" :loading="busy" :disabled="!exportPendingCount" @click="createExport">导出新增 / 变更配对</el-button></div>
           <div class="final-pairs">
             <article v-for="q in questions.filter(item => item.state === 'completed')" :key="q.id">
               <header><b>{{ q.code }}</b><span>{{ q.answer }}</span></header>
@@ -1054,10 +1072,10 @@ onBeforeUnmount(() => {
         <div class="section-title"><span>05 / ABOUT</span><h1>关于 PairForge</h1><p>题意先立，双图后成；让一整套题库的画面生产保持有序、可续、可追溯。</p></div>
         <div class="about-grid">
           <article class="about-intro">
-            <span>PAIRFORGE / {{ systemInfo?.version || '0.3.0' }}</span>
+            <span>PAIRFORGE / {{ systemInfo?.version || '0.4.0' }}</span>
             <h2>{{ systemInfo?.description || 'PairForge：面向《这是谐音梗》创意工坊题库制作的批量 AI 配图工具，支持自定义生图 API，简化成对图片的生成与管理流程。' }}</h2>
             <p>PairForge 服务于《这是谐音梗》创意工坊从题库文档到成对配图成品的制作环节。它坚持同题图一先生成并确定，随后才让图二引用该图继续创作；题目之间、模型之间和 API Key 之间都保持清晰边界。</p>
-            <div class="about-version"><b>VERSION</b><strong>{{ systemInfo?.version || '0.3.0' }}</strong><em>Windows · Local First</em></div>
+            <div class="about-version"><b>VERSION</b><strong>{{ systemInfo?.version || '0.4.0' }}</strong><em>Windows · Local First</em></div>
           </article>
           <a class="repository-card" :href="systemInfo?.repository_url || 'https://github.com/kaguraaya/PairForge'" target="_blank" rel="noopener noreferrer">
             <span>OPEN SOURCE REPOSITORY</span><b>kaguraaya / PairForge</b><p>查看源码、模板、构建说明与后续版本</p><i>↗</i>
@@ -1067,7 +1085,7 @@ onBeforeUnmount(() => {
             <div><b>数据目录</b><code>{{ systemInfo?.data_directory || '正在读取…' }}</code></div>
             <div><b>项目图片</b><code>{{ systemInfo?.projects_directory || '正在读取…' }}</code></div>
             <div><b>缓存目录</b><code>{{ systemInfo?.cache_directory || '正在读取…' }}</code></div>
-            <p>生成中的候选图位于每个项目的 <code>assets\q1_candidates</code> 与 <code>assets\q2_candidates</code>；点击“成品导出”后，可直接上传的平铺图片位于该项目 <code>exports\时间批次\final_images</code>。工作台顶部会显示当前项目的精确路径。</p>
+            <p>生成中的候选图位于每个项目的 <code>assets\q1_candidates</code> 与 <code>assets\q2_candidates</code>；点击“成品导出”后，可直接上传的增量图片位于该项目 <code>exports\日期-批次</code>，图片与清单同级平铺。工作台顶部会显示当前项目的精确路径。</p>
             <div class="storage-actions"><el-button type="primary" plain @click="openDirectory(systemInfo?.data_directory)">打开数据目录</el-button><el-button plain @click="openDirectory(systemInfo?.projects_directory)">打开项目图片目录</el-button></div>
             <p>数据库、候选图与成品不会被“清除缓存”删除。若移动软件，请将 EXE 与同级 <code>PairForge_Data</code> 文件夹一起移动。</p>
           </article>
@@ -1141,7 +1159,7 @@ onBeforeUnmount(() => {
 .section-title { display: grid; grid-template-columns: 170px 1fr; border-bottom: 1px solid var(--ink); padding-bottom: 24px; margin-bottom: 28px; }.section-title h1 { margin: 0; font: 800 clamp(34px,4vw,58px)/1 Rockwell,"FZYaoti",serif; }.section-title p { grid-column: 2; margin: 10px 0 0; color: var(--muted); }
 .dropzone { height: 230px; border: 1px dashed var(--ink); display: flex; align-items: center; justify-content: center; gap: 36px; background: var(--surface-glass); cursor: pointer; transition: .2s; }.dropzone.dragging,.dropzone:hover { background: var(--surface-hover); border-color: var(--signal); }.dropzone input { display: none; }.drop-index { font: 900 22px/1 Rockwell,serif; color: var(--signal); text-align: center; }.dropzone b { font: 800 28px Rockwell,"FZYaoti",serif; }.dropzone p { color: var(--muted); }
 .preview-board { margin-top: 24px; border: 1px solid var(--ink); background: var(--panel); }.metrics { display: grid; grid-template-columns: repeat(4,1fr); border-bottom: 1px solid var(--ink); }.metrics div { padding: 18px; border-right: 1px solid var(--line); }.metrics span { display: block; font-size: 11px; color: var(--muted); }.metrics b { font: 800 36px Rockwell,serif; }.metrics .warn b { color: var(--warn); }.metrics .bad b { color: var(--bad); }.preview-table>div { display: grid; grid-template-columns: 70px 1fr 180px 100px; padding: 11px 16px; border-bottom: 1px solid var(--line); font-size: 13px; }.preview-table em { font-style: normal; }.preview-table i { font-style: normal; color: var(--signal); font-size: 11px; }.preview-table>p { padding: 10px 16px; color: var(--muted); }.issues { padding: 10px 16px; background: var(--surface-warn); }.issues p { margin: 6px 0; font-size: 12px; }.issues b { margin-right: 12px; color: var(--bad); }.confirm-strip { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 18px; padding: 18px; border-top: 1px solid var(--ink); }.confirm-strip span { color: var(--muted); font-size: 12px; }
-.workbench-page { height: calc(100vh - 76px); overflow: hidden; }.workbench-toolbar { height: 60px; padding: 11px 16px; border-bottom: 1px solid var(--ink); display: flex; align-items: center; gap: 16px; }.workbench-toolbar>div:first-child { display: flex; flex-direction: column; min-width: 180px; }.workbench-toolbar .el-input { width: 280px; margin-left: auto; }.workbench-grid { height: calc(100% - 104px); display: grid; grid-template-columns: 230px minmax(500px,1fr) 300px; }.workbench-page.has-batch-progress .workbench-grid { height: calc(100% - 184px); }.batch-progress-float { height: 80px; display: grid; grid-template-columns: 210px minmax(250px,1fr) auto auto; align-items: center; gap: 18px; padding: 10px 18px; border-bottom: 1px solid var(--ink); background: var(--masthead); box-shadow: 0 8px 18px rgba(0,0,0,.14); position: relative; z-index: 9; }.batch-progress-float::before { content: ''; position: absolute; inset: 0 auto 0 0; width: 5px; background: var(--signal); }.batch-progress-float.completed::before { background: var(--good); }.batch-progress-float.failed::before,.batch-progress-float.partial::before { background: var(--bad); }.batch-progress-title { display: flex; flex-direction: column; gap: 2px; }.batch-progress-title>span { color: var(--signal); font: 700 8px monospace; letter-spacing: .1em; }.batch-progress-title>b { font-size: 13px; }.batch-progress-title>small { color: var(--muted); font-size: 9px; }.batch-progress-bar>div { display: flex; justify-content: space-between; margin-bottom: 6px; }.batch-progress-bar b { font-size: 11px; }.batch-progress-bar span { color: var(--muted); font-size: 9px; }.batch-progress-bar :deep(.el-progress-bar__inner) { background: var(--signal); }.batch-progress-float.completed .batch-progress-bar :deep(.el-progress-bar__inner) { background: var(--good); }.batch-progress-metrics { display: flex; gap: 11px; }.batch-progress-metrics span { color: var(--muted); font-size: 8px; text-align: center; white-space: nowrap; }.batch-progress-metrics b { display: block; color: var(--ink); font: 800 16px Rockwell,serif; }.batch-progress-metrics .bad,.batch-progress-metrics .bad b { color: var(--bad); }.batch-progress-metrics .cooldown,.batch-progress-metrics .cooldown b { color: var(--warn); }.batch-progress-actions { min-width: 90px; display: flex; flex-direction: column; align-items: stretch; gap: 3px; }.batch-progress-actions small { color: var(--warn); font-size: 7px; text-align: center; }
+.workbench-page { height: calc(100vh - 76px); overflow: hidden; }.workbench-toolbar { height: 60px; padding: 11px 16px; border-bottom: 1px solid var(--ink); display: flex; align-items: center; gap: 16px; }.workbench-toolbar>div:first-child { display: flex; flex-direction: column; min-width: 180px; }.workbench-toolbar .el-input { width: 280px; margin-left: auto; }.workbench-grid { height: calc(100% - 104px); display: grid; grid-template-columns: 230px minmax(500px,1fr) 300px; }.workbench-page.has-batch-progress .workbench-grid { height: calc(100% - 184px); }.batch-progress-float { min-height: 80px; display: grid; grid-template-columns: 210px minmax(250px,1fr) auto auto; align-items: center; gap: 18px; padding: 10px 18px; border-bottom: 1px solid var(--ink); background: var(--masthead); box-shadow: 0 8px 18px rgba(0,0,0,.14); position: relative; z-index: 9; }.batch-progress-float::before { content: ''; position: absolute; inset: 0 auto 0 0; width: 5px; background: var(--signal); }.batch-progress-float.completed::before { background: var(--good); }.batch-progress-float.failed::before,.batch-progress-float.partial::before { background: var(--bad); }.batch-progress-title { display: flex; flex-direction: column; gap: 2px; }.batch-progress-title>span { color: var(--signal); font: 700 8px monospace; letter-spacing: .1em; }.batch-progress-title>b { font-size: 13px; }.batch-progress-title>small { color: var(--muted); font-size: 9px; }.batch-progress-bar>div { display: flex; justify-content: space-between; margin-bottom: 6px; }.batch-progress-bar b { font-size: 11px; }.batch-progress-bar span { color: var(--muted); font-size: 9px; }.batch-progress-bar :deep(.el-progress-bar__inner) { background: var(--signal); }.batch-progress-float.completed .batch-progress-bar :deep(.el-progress-bar__inner) { background: var(--good); }.batch-progress-metrics { display: flex; gap: 11px; }.batch-progress-metrics span { color: var(--muted); font-size: 8px; text-align: center; white-space: nowrap; }.batch-progress-metrics b { display: block; color: var(--ink); font: 800 16px Rockwell,serif; }.batch-progress-metrics .bad,.batch-progress-metrics .bad b { color: var(--bad); }.batch-progress-metrics .cooldown,.batch-progress-metrics .cooldown b { color: var(--warn); }.batch-progress-actions { min-width: 126px; display: flex; flex-direction: column; align-items: stretch; gap: 3px; }.batch-progress-actions .el-button+.el-button { margin-left: 0; }.batch-progress-actions small { color: var(--warn); font-size: 7px; text-align: center; }
 .question-list { border-right: 1px solid var(--ink); overflow-y: auto; background: var(--paper-deep); }.question-list button { width: 100%; min-height: 64px; display: grid; grid-template-columns: 42px 1fr; grid-template-rows: 1fr auto; text-align: left; border: 0; border-bottom: 1px solid var(--line); color: var(--ink); background: transparent; padding: 11px; }.question-list button>b { grid-row: 1/3; font: 800 18px Rockwell,serif; color: var(--muted); }.question-list button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }.question-list button i { font-style: normal; font-size: 10px; color: var(--muted); }.question-list button i.good { color: var(--good); }.question-list button i.warn { color: var(--warn); }.question-list button i.bad { color: var(--bad); }.question-list button:hover,.question-list button.active { background: var(--panel); }.question-list button.active { border-left: 5px solid var(--signal); padding-left: 6px; }
 .canvas { min-width: 0; overflow-y: auto; padding: 20px; background: var(--panel); }.canvas>header { display: flex; align-items: baseline; gap: 12px; border-bottom: 1px solid var(--line); padding-bottom: 14px; }.canvas>header>span { font: 800 13px monospace; color: var(--signal); }.canvas>header h2 { margin: 0; font: 800 24px Rockwell,"FZYaoti",serif; }.canvas>header em { margin-left: auto; font-style: normal; font-size: 12px; color: var(--muted); }.image-columns { display: grid; grid-template-columns: 1fr 42px 1fr; min-height: 500px; padding-top: 18px; }.stage-label { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }.stage-label b { font: 800 11px monospace; }.stage-label span { font-size: 10px; color: var(--muted); }.dependency-arrow { display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--signal); }.dependency-arrow b { font-size: 28px; }.dependency-arrow span { writing-mode: vertical-rl; font-size: 9px; letter-spacing: .14em; }.image-stage.locked { opacity: .65; }.candidate-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; }.candidate-grid article { position: relative; aspect-ratio: 4/3; border: 1px solid var(--line); background: var(--image-well); overflow: hidden; }.candidate-grid article.selected { outline: 3px solid var(--good); outline-offset: -3px; }.candidate-grid article.stale { filter: grayscale(1); opacity: .58; }.candidate-grid img { width: 100%; height: 100%; object-fit: contain; display: block; }.candidate-grid article>span { position: absolute; top: 6px; left: 6px; background: var(--solid); color: var(--on-solid); padding: 3px 5px; font: 700 9px monospace; }.candidate-grid article>em { position: absolute; bottom: 6px; left: 6px; padding: 4px 6px; color: var(--on-solid); background: var(--overlay); font: 7px monospace; font-style: normal; }.candidate-grid article>b,.candidate-grid article>button { position: absolute; bottom: 6px; right: 6px; border: 0; padding: 6px 8px; background: var(--good); color: white; font-size: 10px; }.candidate-grid article>button { background: var(--signal); }.image-empty { min-height: 310px; border: 1px dashed var(--line); display: grid; place-content: center; text-align: center; }.image-empty>span { font: 900 90px/.8 Rockwell,serif; color: var(--paper-deep); }.image-empty p { color: var(--muted); line-height: 1.7; font-size: 12px; }.reference-chip { display: flex; align-items: center; gap: 8px; padding: 6px; border: 1px solid var(--line); margin-bottom: 8px; font-size: 9px; color: var(--muted); }.reference-chip img { width: 36px; height: 28px; object-fit: contain; }
 .prompt-panel { border-left: 1px solid var(--ink); background: var(--paper-deep); overflow-y: auto; padding: 15px; }.panel-heading { display: flex; flex-direction: column; border-bottom: 1px solid var(--ink); padding-bottom: 12px; }.panel-heading span { font: 700 9px monospace; color: var(--signal); }.panel-heading b { margin-top: 5px; }.prompt-block { margin: 15px 0; }.prompt-block label { font-size: 10px; font-weight: 800; color: var(--muted); }.prompt-block p,details pre { font: 12px/1.65 "Microsoft YaHei",sans-serif; white-space: pre-wrap; max-height: 155px; overflow: auto; }.prompt-block.suffix { padding: 10px; background: var(--panel); }.prompt-block.suffix p { color: var(--cyan); }.prompt-panel summary { font-size: 11px; color: var(--signal); cursor: pointer; }.prompt-panel pre { padding: 8px; background: var(--solid); color: var(--on-solid); }.rule { border-top: 1px solid var(--ink); margin: 20px 0; }

@@ -20,12 +20,17 @@ from app.domain.enums import (
     RunStatus,
     TaskStatus,
 )
-from app.domain.errors import CrossQuestionReferenceError, MissingReferenceImageError
+from app.domain.errors import (
+    CrossQuestionReferenceError,
+    InvalidStateTransitionError,
+    MissingReferenceImageError,
+)
 from app.services.generation import (
     create_run,
     finalize_task,
     pause_batch,
     resume_batch,
+    retry_failed_batch_tasks,
     retry_task,
     start_batch,
 )
@@ -195,6 +200,27 @@ def test_failed_task_can_be_retried_once_without_reusing_idempotency_key(session
     assert retried.request_index == 2
     assert retried.status == TaskStatus.QUEUED
     assert q1.state == QuestionState.IMAGE1_QUEUED
+
+
+def test_bulk_retry_only_requeues_latest_failed_tasks(session) -> None:
+    _, _, _, _, batch = context(session)
+    first, second = start_batch(session, batch.id)
+    first.status = TaskStatus.FAILED
+    second.status = TaskStatus.FAILED
+    session.get(GenerationRun, first.run_id).status = RunStatus.FAILED
+    session.get(GenerationRun, second.run_id).status = RunStatus.FAILED
+    newer_second = retry_task(session, second.id)
+    newer_second.status = TaskStatus.SUCCEEDED
+    session.get(GenerationRun, second.run_id).status = RunStatus.COMPLETED
+    session.flush()
+
+    retried = retry_failed_batch_tasks(session, batch.id)
+
+    assert len(retried) == 1
+    assert retried[0].run_id == first.run_id
+    assert retried[0].request_index == 2
+    with pytest.raises(InvalidStateTransitionError, match="没有可重试"):
+        retry_failed_batch_tasks(session, batch.id)
 
 
 def test_paused_batch_resumes_queued_and_interrupted_work(session) -> None:

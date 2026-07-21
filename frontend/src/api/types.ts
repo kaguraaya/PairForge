@@ -104,6 +104,8 @@ export interface Question {
   image2_prompt: string
   selected_image1_id?: string
   selected_image2_id?: string
+  last_exported_image1_id?: string | null
+  last_exported_image2_id?: string | null
   latest_failed_task_id?: string | null
   latest_error?: string | null
   latest_error_category?: string | null

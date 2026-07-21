@@ -30,7 +30,9 @@ def create_export(
     try:
         result = export_project(session, project.id, Path(project.workspace_path) / "exports")
     except ExportValidationError as error:
+        session.rollback()
         raise HTTPException(409, str(error)) from error
+    session.commit()
     return {
         "directory": str(result.directory),
         "images_directory": str(result.images_directory),

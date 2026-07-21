@@ -191,7 +191,7 @@ def test_two_questions_never_cross_and_single_results_auto_advance(tmp_path) -> 
         exported = client.post("/api/exports", json={"project_id": project_id})
         assert exported.status_code == 200
         export_dir = Path(exported.json()["directory"])
-        final_images = list((export_dir / "final_images").iterdir())
+        final_images = list(export_dir.glob("*.png"))
         assert len(final_images) == 4
         assert {path.name for path in final_images} == {
             "001__答案一__01.png",
@@ -201,6 +201,7 @@ def test_two_questions_never_cross_and_single_results_auto_advance(tmp_path) -> 
         }
         assert (export_dir / "manifest.csv").is_file()
         assert (export_dir / "manifest.json").is_file()
+        assert client.post("/api/exports", json={"project_id": project_id}).status_code == 409
 
 
 def test_invalid_primary_key_fails_over_to_same_profile_backup(tmp_path) -> None:

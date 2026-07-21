@@ -160,6 +160,8 @@ class Question(TimestampMixin, Base):
     selected_image2_id: Mapped[str | None] = mapped_column(
         ForeignKey("image_assets.id", ondelete="SET NULL"), nullable=True
     )
+    last_exported_image1_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    last_exported_image2_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
 
 
 class GenerationBatch(TimestampMixin, Base):

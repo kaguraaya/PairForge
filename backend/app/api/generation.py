@@ -33,6 +33,7 @@ from app.services.generation import (
     pause_batch,
     refresh_batch_status,
     resume_batch,
+    retry_failed_batch_tasks,
     retry_task,
     start_batch,
 )
@@ -238,6 +239,24 @@ async def retry_failed_task(
         raise HTTPException(409, str(error)) from error
     await request.app.state.scheduler.submit(task.id)
     return {"task_id": task.id, "status": task.status}
+
+
+@router.post("/batches/{batch_id}/retry-failed")
+async def retry_failed_batch(
+    batch_id: str,
+    request: Request,
+    session: Session = Depends(get_session),
+) -> dict[str, object]:
+    try:
+        tasks = retry_failed_batch_tasks(session, batch_id)
+        task_ids = [task.id for task in tasks]
+        session.commit()
+    except DomainError as error:
+        session.rollback()
+        raise HTTPException(409, str(error)) from error
+    for task_id in task_ids:
+        await request.app.state.scheduler.submit(task_id)
+    return {"retried_count": len(task_ids), "task_ids": task_ids}
 
 
 def batch_payload(

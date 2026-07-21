@@ -53,6 +53,8 @@ def list_questions(project_id: str, session: Session = Depends(get_session)) -> 
                 "image2_prompt": question.image2_prompt,
                 "selected_image1_id": question.selected_image1_id,
                 "selected_image2_id": question.selected_image2_id,
+                "last_exported_image1_id": question.last_exported_image1_id,
+                "last_exported_image2_id": question.last_exported_image2_id,
                 "latest_failed_task_id": (
                     latest_task.id
                     if latest_task

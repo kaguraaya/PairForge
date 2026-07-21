@@ -6,6 +6,7 @@ import shutil
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
+import re
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -25,6 +26,36 @@ class ExportResult:
     images_directory: Path
     question_count: int
     image_count: int
+
+
+def is_pending_export(question: Question) -> bool:
+    return bool(
+        question.selected_image1_id
+        and question.selected_image2_id
+        and (
+            question.selected_image1_id != question.last_exported_image1_id
+            or question.selected_image2_id != question.last_exported_image2_id
+        )
+    )
+
+
+def _create_batch_directory(exports_root: Path, now: datetime) -> Path:
+    exports_root.mkdir(parents=True, exist_ok=True)
+    date_prefix = now.strftime("%Y%m%d")
+    pattern = re.compile(rf"^{date_prefix}-(\d{{2,}})$")
+    used_numbers = {
+        int(match.group(1))
+        for path in exports_root.iterdir()
+        if path.is_dir() and (match := pattern.fullmatch(path.name))
+    }
+    sequence = max(used_numbers, default=0) + 1
+    while True:
+        directory = exports_root / f"{date_prefix}-{sequence:02d}"
+        try:
+            directory.mkdir(parents=False, exist_ok=False)
+            return directory
+        except FileExistsError:
+            sequence += 1
 
 
 def _selected_pair(session: Session, question: Question) -> tuple[ImageAsset, ImageAsset]:
@@ -47,15 +78,13 @@ def export_project(session: Session, project_id: str, exports_root: Path) -> Exp
     questions = session.scalars(
         select(Question).where(Question.project_id == project_id).order_by(Question.code)
     ).all()
-    completed = [q for q in questions if q.selected_image1_id and q.selected_image2_id]
-    if not completed:
-        raise ExportValidationError("没有可导出的完整题目")
-    pairs = [(question, *_selected_pair(session, question)) for question in completed]
+    pending = [question for question in questions if is_pending_export(question)]
+    if not pending:
+        raise ExportValidationError("没有新增或变更的完整题目可导出")
+    pairs = [(question, *_selected_pair(session, question)) for question in pending]
 
-    stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-    directory = exports_root / stamp
-    images_directory = directory / "final_images"
-    images_directory.mkdir(parents=True, exist_ok=False)
+    directory = _create_batch_directory(exports_root, datetime.now())
+    images_directory = directory
     manifest: list[dict[str, object]] = []
 
     for question, image1, image2 in pairs:
@@ -82,6 +111,8 @@ def export_project(session: Session, project_id: str, exports_root: Path) -> Exp
                 "image2_model": image2.model,
             }
         )
+        question.last_exported_image1_id = image1.id
+        question.last_exported_image2_id = image2.id
 
     (directory / "manifest.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
@@ -101,5 +132,5 @@ def export_project(session: Session, project_id: str, exports_root: Path) -> Exp
     (directory / "export_summary.json").write_text(
         json.dumps(summary, ensure_ascii=False, indent=2, default=str), encoding="utf-8"
     )
+    session.flush()
     return ExportResult(directory, images_directory, len(pairs), len(pairs) * 2)
-

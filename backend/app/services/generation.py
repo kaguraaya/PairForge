@@ -237,6 +237,28 @@ def retry_task(session: Session, task_id: str) -> GenerationTask:
     return retry
 
 
+def retry_failed_batch_tasks(session: Session, batch_id: str) -> list[GenerationTask]:
+    batch = session.get(GenerationBatch, batch_id)
+    if not batch:
+        raise InvalidStateTransitionError("批次不存在")
+    runs = session.scalars(
+        select(GenerationRun).where(GenerationRun.batch_id == batch.id)
+    ).all()
+    retries: list[GenerationTask] = []
+    for run in runs:
+        latest = session.scalar(
+            select(GenerationTask)
+            .where(GenerationTask.run_id == run.id)
+            .order_by(GenerationTask.request_index.desc())
+        )
+        if latest and latest.status in {TaskStatus.FAILED, TaskStatus.INTERRUPTED}:
+            retries.append(retry_task(session, latest.id))
+    if not retries:
+        raise InvalidStateTransitionError("当前批次没有可重试的失败任务")
+    session.flush()
+    return retries
+
+
 def batch_task_ids(
     session: Session,
     batch_id: str,
