@@ -58,6 +58,42 @@ def _create_batch_directory(exports_root: Path, now: datetime) -> Path:
             sequence += 1
 
 
+def _bootstrap_export_markers(
+    session: Session,
+    questions: list[Question],
+    exports_root: Path,
+) -> None:
+    if not exports_root.is_dir():
+        return
+    exported_pairs: dict[str, tuple[str, str]] = {}
+    manifests = sorted(
+        exports_root.rglob("manifest.json"),
+        key=lambda path: (path.stat().st_mtime_ns, str(path)),
+    )
+    for manifest_path in manifests:
+        try:
+            rows = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(rows, list):
+            continue
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            question_id = row.get("question_id")
+            image1_id = row.get("image1_asset_id")
+            image2_id = row.get("image2_asset_id")
+            if all(isinstance(value, str) and value for value in (question_id, image1_id, image2_id)):
+                exported_pairs[question_id] = (image1_id, image2_id)
+    for question in questions:
+        if question.last_exported_image1_id or question.last_exported_image2_id:
+            continue
+        pair = exported_pairs.get(question.id)
+        if pair:
+            question.last_exported_image1_id, question.last_exported_image2_id = pair
+    session.flush()
+
+
 def _selected_pair(session: Session, question: Question) -> tuple[ImageAsset, ImageAsset]:
     image1 = session.get(ImageAsset, question.selected_image1_id)
     image2 = session.get(ImageAsset, question.selected_image2_id)
@@ -78,6 +114,7 @@ def export_project(session: Session, project_id: str, exports_root: Path) -> Exp
     questions = session.scalars(
         select(Question).where(Question.project_id == project_id).order_by(Question.code)
     ).all()
+    _bootstrap_export_markers(session, questions, exports_root)
     pending = [question for question in questions if is_pending_export(question)]
     if not pending:
         raise ExportValidationError("没有新增或变更的完整题目可导出")

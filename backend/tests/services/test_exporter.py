@@ -1,4 +1,5 @@
 import hashlib
+import json
 import re
 
 import pytest
@@ -120,18 +121,38 @@ def test_export_only_writes_new_or_changed_pairs_to_short_batch_folder(session, 
     session.add(profile)
     session.flush()
     first = completed_pair(session, tmp_path, project, profile, "001")
-    completed_pair(session, tmp_path, project, profile, "026")
+    added = completed_pair(session, tmp_path, project, profile, "026")
     exports_root = tmp_path / "exports"
+    legacy_directory = exports_root / "20260721_120000_000000"
+    legacy_directory.mkdir(parents=True)
+    (legacy_directory / "manifest.json").write_text(
+        json.dumps(
+            [
+                {
+                    "question_id": first.id,
+                    "image1_asset_id": first.selected_image1_id,
+                    "image2_asset_id": first.selected_image2_id,
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
 
     initial = export_project(session, project.id, exports_root)
 
     assert re.fullmatch(r"\d{8}-01", initial.directory.name)
     assert initial.images_directory == initial.directory
-    assert initial.question_count == 2
-    assert len(list(initial.directory.glob("*.png"))) == 4
+    assert initial.question_count == 1
+    assert len(list(initial.directory.glob("*.png"))) == 2
+    assert {path.name for path in initial.directory.glob("*.png")} == {
+        "026__答案026__01.png",
+        "026__答案026__02.png",
+    }
     assert not (initial.directory / "final_images").exists()
     assert first.last_exported_image1_id == first.selected_image1_id
     assert first.last_exported_image2_id == first.selected_image2_id
+    assert added.last_exported_image1_id == added.selected_image1_id
+    assert added.last_exported_image2_id == added.selected_image2_id
 
     with pytest.raises(ExportValidationError, match="没有新增或变更"):
         export_project(session, project.id, exports_root)
