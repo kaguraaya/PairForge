@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "double-image-workbench"
-version = "0.5.2"
+version = "0.6.0"
 description = "Windows-local dual-image generation workbench"
 requires-python = ">=3.12"
 dependencies = [

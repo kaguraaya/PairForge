@@ -18,7 +18,7 @@ MODEL_CAPABILITIES = (
         single_output_semantics=OutputSemantics.FIXED,
         multiple_output_semantics=OutputSemantics.MAXIMUM,
         unit_price_cny=Decimal("0.22"),
-        price_checked_on="2026-07-21",
+        price_checked_on="2026-07-24",
         documentation_url="https://www.volcengine.com/docs/82379/1541523",
     ),
     ModelCapabilities(
@@ -30,11 +30,11 @@ MODEL_CAPABILITIES = (
         min_outputs=1,
         max_text_outputs=15,
         max_edit_outputs=14,
-        default_size="2048x1536",
+        default_size="2048x2048",
         single_output_semantics=OutputSemantics.FIXED,
         multiple_output_semantics=OutputSemantics.MAXIMUM,
         unit_price_cny=Decimal("0.25"),
-        price_checked_on="2026-07-21",
+        price_checked_on="2026-07-24",
         documentation_url="https://www.volcengine.com/docs/82379/1541523",
     ),
     ModelCapabilities(

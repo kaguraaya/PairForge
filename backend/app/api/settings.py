@@ -11,7 +11,7 @@ from app.domain.errors import DomainError
 from app.providers.registry import model_registry
 from app.providers.size_rules import (
     normalize_generation_config,
-    seedream_5_lite_size_error,
+    seedream_size_error,
 )
 from app.services.credentials import (
     credential_payload,
@@ -86,7 +86,7 @@ def validate_generation_config(
     if size is not None and (not isinstance(size, str) or not 1 <= len(size) <= 64):
         raise HTTPException(400, "输出尺寸格式无效")
     if isinstance(size, str):
-        size_error = seedream_5_lite_size_error(provider, model_id, size)
+        size_error = seedream_size_error(provider, model_id, size)
         if size_error:
             raise HTTPException(400, size_error)
     for key in ("watermark", "prompt_extend", "thinking_mode", "single_output_default"):
@@ -159,7 +159,11 @@ def list_models() -> list[dict[str, object]]:
             "support_level": (
                 "optimized"
                 if item.provider == "volcengine"
-                and item.model == "doubao-seedream-5-0-lite-260128"
+                and item.model
+                in {
+                    "doubao-seedream-5-0-lite-260128",
+                    "doubao-seedream-4-5-251128",
+                }
                 else "testing"
             ),
             **provider_links.get(item.provider, {}),

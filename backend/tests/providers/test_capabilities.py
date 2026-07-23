@@ -38,6 +38,7 @@ def test_other_current_seedream_models_are_available() -> None:
     assert seedream_45.supports_image_edit is True
     assert seedream_40.supports_image_edit is True
     assert seedream_45.max_outputs(GenerationStage.IMAGE2) == 14
+    assert seedream_45.default_size == "2048x2048"
     assert seedream_40.max_outputs(GenerationStage.IMAGE1) == 15
     assert str(seedream_45.unit_price_cny) == "0.25"
     assert str(seedream_40.unit_price_cny) == "0.20"

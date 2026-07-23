@@ -75,6 +75,27 @@ const editingProfile = computed(() => profiles.value.find(p => p.id === profileF
 const formModel = computed(() => models.value.find(item => (
   item.provider === profileForm.provider && item.model === profileForm.model_id
 )))
+const optimizedSupportSummary = computed(() => {
+  if (formModel.value?.model === 'doubao-seedream-4-5-251128') {
+    return 'Seedream 4.5 已完成官方 2K/4K 尺寸、组图、图生图与错误处理适配；Agent Plan 可用模型以套餐控制台为准。'
+  }
+  return 'Seedream 5.0 Lite 已完成尺寸、组图、图生图、错误处理与双接口适配。'
+})
+const formSizeRuleNote = computed(() => {
+  if (formModel.value?.model === 'doubao-seedream-4-5-251128') {
+    return {
+      title: 'Seedream 4.5 官方尺寸',
+      text: '支持 2K、4K；预设采用官方 2K 映射。显式宽高需满足 3,686,400–16,777,216 总像素及 1:16–16:1 宽高比。',
+    }
+  }
+  if (formModel.value?.model === 'doubao-seedream-5-0-lite-260128') {
+    return {
+      title: 'Seedream 5.0 Lite 官方尺寸',
+      text: '支持 2K、3K、4K；预设采用官方 2K 映射。旧版小尺寸会自动升级为相同比例的合法尺寸。',
+    }
+  }
+  return undefined
+})
 const formLimits = computed(() => profileForm.provider === 'custom'
   ? { image1: Math.max(1, profileForm.max_outputs), image2: Math.max(1, profileForm.max_outputs) }
   : candidateLimits(formModel.value))
@@ -983,7 +1004,7 @@ onBeforeUnmount(() => {
               </el-select>
               <div v-if="formModel" class="support-level-note" :class="formModel.support_level">
                 <b>{{ formModel.support_level === 'optimized' ? '当前重点特化' : '当前为测试适配' }}</b>
-                <span>{{ formModel.support_level === 'optimized' ? 'Seedream 5.0 Lite 已完成尺寸、组图、图生图、错误处理与双接口适配。' : '已实现基础调用，但不同账号、地域和厂商版本仍可能存在差异，请先小范围试跑。' }}</span>
+                <span>{{ formModel.support_level === 'optimized' ? optimizedSupportSummary : '已实现基础调用，但不同账号、地域和厂商版本仍可能存在差异，请先小范围试跑。' }}</span>
               </div>
               <template v-else>
                 <label>服务名称</label><el-input v-model="profileForm.display_name" />
@@ -1023,9 +1044,9 @@ onBeforeUnmount(() => {
                   <div><label>实际发送尺寸（可自定义）</label><el-input v-model="profileForm.size" :placeholder="isSeedream ? '2K / 2304x1728' : '2048*2048'" /></div>
                   <div v-if="isSeedream || isQwen"><label>随机种子（可空）</label><el-input-number v-model="profileForm.seed" :min="0" :max="2147483647" controls-position="right" /></div>
                 </div>
-                <div v-if="profileForm.model_id === 'doubao-seedream-5-0-lite-260128'" class="provider-default-note size-rule-note">
-                  <b>Seedream 5.0 Lite 尺寸下限</b>
-                  <span>显式宽高至少需要 3,686,400 总像素。旧版的 2048x1536 等小尺寸会自动升级为相同比例的合法尺寸。</span>
+                <div v-if="formSizeRuleNote" class="provider-default-note size-rule-note">
+                  <b>{{ formSizeRuleNote.title }}</b>
+                  <span>{{ formSizeRuleNote.text }}</span>
                 </div>
                 <div v-if="isSeedream" class="guidance-control">
                   <div class="guidance-heading"><div><label>提示词遵循强度（guidance_scale）</label><span>官方没有“普遍最佳值”</span></div><el-switch v-model="customGuidance" inline-prompt active-text="自定义" inactive-text="模型默认" /></div>
@@ -1130,10 +1151,10 @@ onBeforeUnmount(() => {
         <div class="section-title"><span>05 / ABOUT</span><h1>关于 PairForge</h1><p>题意先立，双图后成；让一整套题库的画面生产保持有序、可续、可追溯。</p></div>
         <div class="about-grid">
           <article class="about-intro">
-            <span>PAIRFORGE / {{ systemInfo?.version || '0.5.2' }}</span>
+            <span>PAIRFORGE / {{ systemInfo?.version || '0.6.0' }}</span>
             <h2>{{ systemInfo?.description || 'PairForge：面向《这是谐音梗》创意工坊题库制作的批量 AI 配图工具，支持自定义生图 API，简化成对图片的生成与管理流程。' }}</h2>
             <p>PairForge 服务于《这是谐音梗》创意工坊从题库文档到成对配图成品的制作环节。它坚持同题图一先生成并确定，随后才让图二引用该图继续创作；题目之间、模型之间和 API Key 之间都保持清晰边界。</p>
-            <div class="about-version"><b>VERSION</b><strong>{{ systemInfo?.version || '0.5.2' }}</strong><em>Windows · Local First</em></div>
+            <div class="about-version"><b>VERSION</b><strong>{{ systemInfo?.version || '0.6.0' }}</strong><em>Windows · Local First</em></div>
           </article>
           <a class="repository-card" :href="systemInfo?.repository_url || 'https://github.com/kaguraaya/PairForge'" target="_blank" rel="noopener noreferrer">
             <span>OPEN SOURCE REPOSITORY</span><b>kaguraaya / PairForge</b><p>查看源码、模板、构建说明与后续版本</p><i>↗</i>

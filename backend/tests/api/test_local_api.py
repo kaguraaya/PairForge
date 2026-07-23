@@ -278,3 +278,27 @@ def test_seedream_5_lite_profile_upgrades_legacy_size_and_rejects_too_small_size
         )
         assert rejected.status_code == 400
         assert "3,686,400" in rejected.json()["detail"]
+
+
+def test_seedream_4_5_profile_uses_official_default_and_rejects_3k(tmp_path) -> None:
+    app = create_app(tmp_path / "seedream-45-size", static_dir=tmp_path / "none")
+    base = {
+        "provider": "volcengine",
+        "display_name": "Seedream 4.5",
+        "base_url": "https://ark.cn-beijing.volces.com",
+        "model_id": "doubao-seedream-4-5-251128",
+    }
+    with TestClient(app) as client:
+        upgraded = client.post(
+            "/api/settings/profiles",
+            json={**base, "config": {"size": "2048x1152"}},
+        )
+        assert upgraded.status_code == 200
+        assert upgraded.json()["config"]["size"] == "2848x1600"
+
+        rejected = client.post(
+            "/api/settings/profiles",
+            json={**base, "config": {"size": "3K"}},
+        )
+        assert rejected.status_code == 400
+        assert rejected.json()["detail"] == "Seedream 4.5 分辨率档位仅支持 2K、4K"

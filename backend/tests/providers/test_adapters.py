@@ -38,6 +38,23 @@ def test_seedream_single_and_candidate_payloads() -> None:
     assert multiple["sequential_image_generation_options"] == {"max_images": 3}
 
 
+def test_seedream_4_5_uses_the_shared_official_payload_with_reference_image() -> None:
+    payload = build_seedream_payload(
+        request(
+            "doubao-seedream-4-5-251128",
+            2,
+            reference="data:image/png;base64,AAA",
+            size="2304x1728",
+        )
+    )
+
+    assert payload["model"] == "doubao-seedream-4-5-251128"
+    assert payload["size"] == "2304x1728"
+    assert payload["image"] == "data:image/png;base64,AAA"
+    assert payload["sequential_image_generation"] == "auto"
+    assert payload["sequential_image_generation_options"] == {"max_images": 2}
+
+
 def test_qwen_and_wan_do_not_share_parameters() -> None:
     qwen = build_qwen_payload(request("qwen-image-2.0", reference="data:image/png;base64,AAA"))
     wan = build_wan_payload(request("wan2.7-image"))

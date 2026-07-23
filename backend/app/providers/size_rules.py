@@ -3,37 +3,51 @@ from __future__ import annotations
 import re
 
 
-SEEDREAM_5_LITE_MODELS = {"doubao-seedream-5-0-lite-260128"}
-SEEDREAM_5_LITE_MIN_PIXELS = 2_560 * 1_440
-SEEDREAM_5_LITE_MAX_PIXELS = 4_096 * 4_096
+SEEDREAM_SIZE_SPECS = {
+    "doubao-seedream-5-0-lite-260128": {
+        "display_name": "Seedream 5.0 Lite",
+        "levels": frozenset({"2K", "3K", "4K"}),
+        "min_pixels": 2_560 * 1_440,
+        "max_pixels": 4_096 * 4_096,
+    },
+    "doubao-seedream-4-5-251128": {
+        "display_name": "Seedream 4.5",
+        "levels": frozenset({"2K", "4K"}),
+        "min_pixels": 2_560 * 1_440,
+        "max_pixels": 4_096 * 4_096,
+    },
+}
 
-# Earlier app builds exposed these ratio presets. They are below Seedream 5.0
-# Lite's documented minimum total pixel count, so keep old projects usable by
-# upgrading them to the nearest equivalent ratio before validation or sending.
-SEEDREAM_5_LITE_LEGACY_SIZES = {
+# Earlier app builds exposed these ratio presets for Seedream. They are below
+# the current 5.0 Lite and 4.5 minimum pixel count, so keep old projects usable
+# by upgrading them to the official 2K ratio mapping before validation or sending.
+SEEDREAM_LEGACY_SIZES = {
     "2048x1536": "2304x1728",
     "1536x2048": "1728x2304",
-    "2048x1152": "2560x1440",
-    "1152x2048": "1440x2560",
+    "2048x1152": "2848x1600",
+    "1152x2048": "1600x2848",
 }
 
 _EXPLICIT_SIZE = re.compile(r"^(\d{2,5})x(\d{2,5})$", re.IGNORECASE)
-_RESOLUTION_LEVELS = {"2K", "3K", "4K"}
+_RESOLUTION_LEVEL = re.compile(r"^\d{1,2}K$", re.IGNORECASE)
 
 
-def is_seedream_5_lite(provider: str, model_id: str) -> bool:
-    return provider == "volcengine" and model_id in SEEDREAM_5_LITE_MODELS
+def seedream_size_spec(provider: str, model_id: str) -> dict[str, object] | None:
+    if provider != "volcengine":
+        return None
+    return SEEDREAM_SIZE_SPECS.get(model_id)
 
 
 def normalize_image_size(provider: str, model_id: str, size: str) -> str:
     normalized = size.strip()
-    if not is_seedream_5_lite(provider, model_id):
+    spec = seedream_size_spec(provider, model_id)
+    if spec is None:
         return normalized
     resolution = normalized.upper()
-    if resolution in _RESOLUTION_LEVELS:
+    if resolution in spec["levels"]:
         return resolution
     explicit = normalized.lower()
-    return SEEDREAM_5_LITE_LEGACY_SIZES.get(explicit, explicit)
+    return SEEDREAM_LEGACY_SIZES.get(explicit, explicit)
 
 
 def normalize_generation_config(
@@ -48,26 +62,34 @@ def normalize_generation_config(
     return normalized
 
 
-def seedream_5_lite_size_error(provider: str, model_id: str, size: str) -> str | None:
-    if not is_seedream_5_lite(provider, model_id):
+def seedream_size_error(provider: str, model_id: str, size: str) -> str | None:
+    spec = seedream_size_spec(provider, model_id)
+    if spec is None:
         return None
     normalized = normalize_image_size(provider, model_id, size)
-    if normalized in _RESOLUTION_LEVELS:
+    levels = spec["levels"]
+    if normalized in levels:
         return None
+    display_name = str(spec["display_name"])
+    if _RESOLUTION_LEVEL.fullmatch(normalized):
+        choices = "、".join(sorted(levels))
+        return f"{display_name} 分辨率档位仅支持 {choices}"
     match = _EXPLICIT_SIZE.fullmatch(normalized)
     if not match:
         return (
-            "Seedream 5.0 Lite 尺寸应填写 2K、3K、4K 或“宽x高”"
+            f"{display_name} 尺寸应填写支持的分辨率档位或“宽x高”"
             "（例如 2304x1728）"
         )
     width, height = (int(value) for value in match.groups())
     pixels = width * height
-    if not SEEDREAM_5_LITE_MIN_PIXELS <= pixels <= SEEDREAM_5_LITE_MAX_PIXELS:
+    min_pixels = int(spec["min_pixels"])
+    max_pixels = int(spec["max_pixels"])
+    if not min_pixels <= pixels <= max_pixels:
         return (
-            "Seedream 5.0 Lite 显式尺寸的总像素必须在 3,686,400 到 "
-            f"16,777,216 之间；当前 {normalized} 为 {pixels:,} 像素"
+            f"{display_name} 显式尺寸的总像素必须在 {min_pixels:,} 到 "
+            f"{max_pixels:,} 之间；当前 {normalized} 为 {pixels:,} 像素"
         )
     ratio = width / height
     if not 1 / 16 <= ratio <= 16:
-        return "Seedream 5.0 Lite 的宽高比必须在 1:16 到 16:1 之间"
+        return f"{display_name} 的宽高比必须在 1:16 到 16:1 之间"
     return None

@@ -22,12 +22,15 @@ export interface SizePreset {
   recommendation?: string
 }
 
-const SEEDREAM_5_LITE_SIZE_PRESETS: SizePreset[] = [
+const SEEDREAM_OFFICIAL_2K_SIZE_PRESETS: SizePreset[] = [
   { ratio: '1:1', label: '方图', value: '2048x2048', recommendation: '官方 2K' },
   { ratio: '4:3', label: '横图', value: '2304x1728', recommendation: '官方 2K' },
   { ratio: '3:4', label: '竖图', value: '1728x2304', recommendation: '官方 2K' },
-  { ratio: '16:9', label: '宽屏', value: '2560x1440', recommendation: '官方 2K' },
-  { ratio: '9:16', label: '竖屏', value: '1440x2560', recommendation: '官方 2K' },
+  { ratio: '16:9', label: '宽屏', value: '2848x1600', recommendation: '官方 2K' },
+  { ratio: '9:16', label: '竖屏', value: '1600x2848', recommendation: '官方 2K' },
+  { ratio: '3:2', label: '横幅', value: '2496x1664', recommendation: '官方 2K' },
+  { ratio: '2:3', label: '竖幅', value: '1664x2496', recommendation: '官方 2K' },
+  { ratio: '21:9', label: '超宽', value: '3136x1344', recommendation: '官方 2K' },
 ]
 
 const SEEDREAM_LEGACY_SIZE_PRESETS: SizePreset[] = [
@@ -48,8 +51,11 @@ const ALIBABA_SIZE_PRESETS: SizePreset[] = [
 
 export function sizePresets(model: Pick<ModelInfo, 'provider' | 'model'> | undefined): SizePreset[] {
   if (!model) return []
-  if (model.provider === 'volcengine' && model.model === 'doubao-seedream-5-0-lite-260128') {
-    return SEEDREAM_5_LITE_SIZE_PRESETS
+  if (model.provider === 'volcengine' && [
+    'doubao-seedream-5-0-lite-260128',
+    'doubao-seedream-4-5-251128',
+  ].includes(model.model)) {
+    return SEEDREAM_OFFICIAL_2K_SIZE_PRESETS
   }
   if (model.provider === 'volcengine') return SEEDREAM_LEGACY_SIZE_PRESETS
   if (model.provider === 'alibaba') return ALIBABA_SIZE_PRESETS

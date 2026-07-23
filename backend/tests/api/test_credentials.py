@@ -122,6 +122,7 @@ def test_models_publish_production_support_level(tmp_path) -> None:
         models = client.get("/api/settings/models").json()
     support = {item["model"]: item["support_level"] for item in models}
     assert support["doubao-seedream-5-0-lite-260128"] == "optimized"
+    assert support["doubao-seedream-4-5-251128"] == "optimized"
     assert support["qwen-image-2.0"] == "testing"
     assert support["wan2.7-image"] == "testing"
 
