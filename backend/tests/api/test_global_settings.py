@@ -153,3 +153,86 @@ def test_each_project_keeps_its_selected_global_profile(tmp_path) -> None:
             ]
             == first_profile["id"]
         )
+
+
+def test_global_service_can_be_deleted_and_projects_use_a_replacement(tmp_path) -> None:
+    app = create_app(tmp_path / "delete-service", static_dir=tmp_path / "none")
+    with TestClient(app) as client:
+        first_profile = client.post(
+            "/api/settings/profiles",
+            json={
+                "provider": "custom",
+                "display_name": "保留服务",
+                "base_url": "https://keep.example.invalid",
+                "model_id": "keep-model",
+                "api_key": "keep-secret-1111",
+            },
+        ).json()
+        deleted_profile = client.post(
+            "/api/settings/profiles",
+            json={
+                "provider": "custom",
+                "display_name": "待删除服务",
+                "base_url": "https://delete.example.invalid",
+                "model_id": "delete-model",
+                "api_key": "delete-secret-2222",
+            },
+        ).json()
+        deleted_credential_id = deleted_profile["credentials"][0]["id"]
+        project_id = import_project(client, "使用待删除服务的项目", "丁")
+        assert (
+            client.get(f"/api/projects/{project_id}").json()[
+                "selected_provider_profile_id"
+            ]
+            == deleted_profile["id"]
+        )
+
+        response = client.delete(f"/api/settings/profiles/{deleted_profile['id']}")
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "deleted": True,
+            "replacement_profile_id": first_profile["id"],
+            "affected_project_count": 1,
+        }
+        assert app.state.secret_store.get(deleted_credential_id) is None
+        assert [item["id"] for item in client.get("/api/settings/profiles").json()] == [
+            first_profile["id"]
+        ]
+        assert (
+            client.get(f"/api/projects/{project_id}").json()[
+                "selected_provider_profile_id"
+            ]
+            == first_profile["id"]
+        )
+        assert (
+            client.get(
+                f"/api/settings/profiles/{deleted_profile['id']}/credentials"
+            ).status_code
+            == 404
+        )
+        assert (
+            client.post(
+                "/api/settings/profiles",
+                json={
+                    **deleted_profile,
+                    "project_id": project_id,
+                    "api_key": None,
+                },
+            ).status_code
+            == 404
+        )
+        assert (
+            client.post(
+                "/api/generation/estimate",
+                json={
+                    "project_id": project_id,
+                    "provider_profile_id": deleted_profile["id"],
+                    "start_code": "001",
+                    "end_code": "001",
+                    "q1_outputs": 1,
+                    "q2_outputs": 1,
+                },
+            ).status_code
+            == 404
+        )

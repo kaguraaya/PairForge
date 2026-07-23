@@ -96,7 +96,10 @@ def confirm_import(
     project.source_sha256 = preview.source_sha256
     default_profile = session.scalar(
         select(ProviderProfile)
-        .where(ProviderProfile.project_id.is_(None))
+        .where(
+            ProviderProfile.project_id.is_(None),
+            ProviderProfile.archived.is_(False),
+        )
         .order_by(ProviderProfile.updated_at.desc())
     )
     if default_profile:

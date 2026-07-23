@@ -20,7 +20,7 @@ def test_system_info_and_cache_clear_preserve_user_assets(tmp_path: Path) -> Non
         info = client.get("/api/system/info")
         assert info.status_code == 200
         assert info.json()["name"] == "PairForge"
-        assert info.json()["version"] == "0.5.1"
+        assert info.json()["version"] == "0.5.2"
         assert info.json()["repository_url"] == "https://github.com/kaguraaya/PairForge"
         assert info.json()["data_directory"] == str(data_dir)
         assert info.json()["projects_directory"] == str(data_dir / "projects")

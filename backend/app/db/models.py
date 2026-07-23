@@ -72,6 +72,7 @@ class ProviderProfile(TimestampMixin, Base):
     __tablename__ = "provider_profiles"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    archived: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     project_id: Mapped[str | None] = mapped_column(
         ForeignKey("projects.id", ondelete="CASCADE"), nullable=True, index=True
     )

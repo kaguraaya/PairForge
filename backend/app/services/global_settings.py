@@ -1,10 +1,24 @@
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import AppSettings, Project, ProviderProfile
+from app.db.models import (
+    AppSettings,
+    GenerationTask,
+    Project,
+    ProviderProfile,
+)
+from app.domain.enums import TaskStatus
+from app.domain.errors import InvalidStateTransitionError
+from app.security.secrets import SecretStore
+from app.services.credentials import credentials_for_profile, disable_credential
 
 
 GLOBAL_SETTINGS_ID = 1
+ACTIVE_TASK_STATUSES = {
+    TaskStatus.QUEUED,
+    TaskStatus.RUNNING,
+    TaskStatus.SAVING,
+}
 
 
 def get_global_settings(session: Session) -> AppSettings:
@@ -51,3 +65,40 @@ def update_global_prompts(
     settings.q2_prompt_suffix = q2_prompt_suffix
     session.flush()
     return settings
+
+
+def archive_provider_profile(
+    session: Session,
+    secret_store: SecretStore,
+    profile: ProviderProfile,
+) -> tuple[ProviderProfile | None, int]:
+    active_task = session.scalar(
+        select(GenerationTask.id)
+        .where(
+            GenerationTask.provider_profile_id == profile.id,
+            GenerationTask.status.in_(ACTIVE_TASK_STATUSES),
+        )
+        .limit(1)
+    )
+    if active_task:
+        raise InvalidStateTransitionError(
+            "该服务仍有排队或生成中的任务，请先暂停并等待在途任务结束"
+        )
+    for credential in credentials_for_profile(session, profile.id):
+        disable_credential(session, secret_store, profile, credential.id)
+    profile.archived = True
+    replacement = session.scalar(
+        select(ProviderProfile)
+        .where(
+            ProviderProfile.id != profile.id,
+            ProviderProfile.archived.is_(False),
+        )
+        .order_by(ProviderProfile.updated_at.desc())
+    )
+    affected_projects = session.scalars(
+        select(Project).where(Project.selected_provider_profile_id == profile.id)
+    ).all()
+    for project in affected_projects:
+        project.selected_provider_profile_id = replacement.id if replacement else None
+    session.flush()
+    return replacement, len(affected_projects)

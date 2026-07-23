@@ -367,14 +367,48 @@ function editProfile(profile: ProviderProfile) {
 
 async function chooseSavedProfile(profile: ProviderProfile) {
   editProfile(profile)
-  if (!project.value || project.value.selected_provider_profile_id === profile.id) return
+  if (!project.value || project.value.selected_provider_profile_id === profile.id) {
+    nextTick(() => scrollSettings('model-settings'))
+    return
+  }
   try {
     await api(`/projects/${project.value.id}/provider-profile`, jsonBody({
       profile_id: profile.id,
     }, 'PUT'))
     project.value.selected_provider_profile_id = profile.id
     ElMessage.success(`当前项目已切换到全局服务“${profile.display_name}”`)
+    nextTick(() => scrollSettings('model-settings'))
   } catch (error) { showError(error) }
+}
+
+async function deleteSavedProfile(profile: ProviderProfile) {
+  if (!project.value || busy.value) return
+  try {
+    await ElMessageBox.confirm(
+      `将从全局服务库删除“${profile.display_name}”，并清除其中全部 API Key。所有项目都会停止选择该服务，但历史任务和用量记录仍会保留。`,
+      '删除这套全局服务？',
+      { confirmButtonText: '确认删除服务', cancelButtonText: '保留', type: 'warning' },
+    )
+  } catch { return }
+  busy.value = true
+  try {
+    const result = await api<{
+      replacement_profile_id: string | null
+      affected_project_count: number
+    }>(`/settings/profiles/${profile.id}`, { method: 'DELETE' })
+    project.value = await api<Project>(`/projects/${project.value.id}`)
+    profiles.value = await api<ProviderProfile[]>(`/settings/profiles?project_id=${project.value.id}`)
+    const selected = profiles.value.find(
+      item => item.id === project.value?.selected_provider_profile_id,
+    )
+    if (selected) editProfile(selected)
+    else newPresetProfile()
+    ElMessage.success(
+      result.affected_project_count
+        ? `服务已删除，${result.affected_project_count} 个项目已自动切换`
+        : '服务已从全局服务库删除',
+    )
+  } catch (error) { showError(error) } finally { busy.value = false }
 }
 
 function credentialStatus(status: string) {
@@ -934,7 +968,14 @@ onBeforeUnmount(() => {
               </div>
               <div v-if="profiles.length" class="saved-services">
                 <span>全局服务库 · 所有项目共用</span>
-                <button v-for="p in profiles" :key="p.id" @click="chooseSavedProfile(p)" :class="{ active: p.id === profileForm.id }">{{ p.display_name }} <i>{{ p.secret_configured ? `Key ····${p.last_four}` : '未配置 Key' }}</i></button>
+                <div v-for="p in profiles" :key="p.id" class="saved-service" :class="{ active: p.id === profileForm.id }">
+                  <button class="saved-service-main" @click="chooseSavedProfile(p)">
+                    <b>{{ p.display_name }}</b>
+                    <i>{{ p.secret_configured ? `Key ····${p.last_four}` : '未配置 Key' }}</i>
+                    <small>使用 / 编辑</small>
+                  </button>
+                  <button class="saved-service-delete" title="删除整套服务及其中全部 Key" @click.stop="deleteSavedProfile(p)">删除</button>
+                </div>
               </div>
               <label>已验证模型</label>
               <el-select v-if="profileForm.provider !== 'custom'" v-model="profileForm.model_id" style="width: 100%" @change="chooseModel">
@@ -1089,10 +1130,10 @@ onBeforeUnmount(() => {
         <div class="section-title"><span>05 / ABOUT</span><h1>关于 PairForge</h1><p>题意先立，双图后成；让一整套题库的画面生产保持有序、可续、可追溯。</p></div>
         <div class="about-grid">
           <article class="about-intro">
-            <span>PAIRFORGE / {{ systemInfo?.version || '0.5.1' }}</span>
+            <span>PAIRFORGE / {{ systemInfo?.version || '0.5.2' }}</span>
             <h2>{{ systemInfo?.description || 'PairForge：面向《这是谐音梗》创意工坊题库制作的批量 AI 配图工具，支持自定义生图 API，简化成对图片的生成与管理流程。' }}</h2>
             <p>PairForge 服务于《这是谐音梗》创意工坊从题库文档到成对配图成品的制作环节。它坚持同题图一先生成并确定，随后才让图二引用该图继续创作；题目之间、模型之间和 API Key 之间都保持清晰边界。</p>
-            <div class="about-version"><b>VERSION</b><strong>{{ systemInfo?.version || '0.5.1' }}</strong><em>Windows · Local First</em></div>
+            <div class="about-version"><b>VERSION</b><strong>{{ systemInfo?.version || '0.5.2' }}</strong><em>Windows · Local First</em></div>
           </article>
           <a class="repository-card" :href="systemInfo?.repository_url || 'https://github.com/kaguraaya/PairForge'" target="_blank" rel="noopener noreferrer">
             <span>OPEN SOURCE REPOSITORY</span><b>kaguraaya / PairForge</b><p>查看源码、模板、构建说明与后续版本</p><i>↗</i>
@@ -1182,7 +1223,7 @@ onBeforeUnmount(() => {
 .prompt-panel { border-left: 1px solid var(--ink); background: var(--paper-deep); overflow-y: auto; padding: 15px; }.panel-heading { display: flex; flex-direction: column; border-bottom: 1px solid var(--ink); padding-bottom: 12px; }.panel-heading span { font: 700 9px monospace; color: var(--signal); }.panel-heading b { margin-top: 5px; }.prompt-block { margin: 15px 0; }.prompt-block label { font-size: 10px; font-weight: 800; color: var(--muted); }.prompt-block p,details pre { font: 12px/1.65 "Microsoft YaHei",sans-serif; white-space: pre-wrap; max-height: 155px; overflow: auto; }.prompt-block.suffix { padding: 10px; background: var(--panel); }.prompt-block.suffix p { color: var(--cyan); }.prompt-panel summary { font-size: 11px; color: var(--signal); cursor: pointer; }.prompt-panel pre { padding: 8px; background: var(--solid); color: var(--on-solid); }.rule { border-top: 1px solid var(--ink); margin: 20px 0; }
 .settings-jump { position: sticky; top: 88px; z-index: 8; display: grid; grid-template-columns: repeat(4,1fr); gap: 1px; margin: -10px 0 22px; border: 1px solid var(--ink); background: var(--line); box-shadow: 6px 6px 0 var(--paper-deep); }.settings-jump button { border: 0; padding: 12px 14px; color: var(--ink); background: var(--panel); text-align: left; font-weight: 800; cursor: pointer; }.settings-jump button:hover { color: var(--signal); background: var(--surface-hover); }.settings-jump span { margin-right: 10px; color: var(--signal); font: 700 9px monospace; }
 .settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }.settings-card { scroll-margin-top: 145px; border: 1px solid var(--ink); background: var(--panel); padding: 24px; box-shadow: 8px 8px 0 var(--paper-deep); }.settings-card.full-card { grid-column: 1/-1; }.settings-card header { display: flex; gap: 14px; border-bottom: 1px solid var(--line); margin-bottom: 20px; padding-bottom: 18px; }.settings-card header>span { flex: 0 0 34px; width: 34px; height: 34px; display: grid; place-items: center; color: var(--on-solid); background: var(--solid); font: 800 18px Rockwell,serif; }.settings-card h2 { margin: 0; font: 800 22px Rockwell,"FZYaoti",serif; }.settings-card header p { margin: 5px 0; color: var(--muted); font-size: 12px; }.settings-card>label,.inline-fields label,.candidate-defaults label,.prompt-fields label { display: flex; justify-content: space-between; margin: 17px 0 7px; font-size: 11px; font-weight: 800; }.settings-card label em { font-weight: 400; color: var(--muted); }.settings-card>.el-button { margin-top: 20px; }.inline-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.service-mode { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 18px; }.service-mode button { min-height: 62px; padding: 10px 14px; border: 1px solid var(--line); color: var(--ink); background: var(--paper); text-align: left; cursor: pointer; }.service-mode button b,.service-mode button span { display: block; }.service-mode button span { margin-top: 4px; color: var(--muted); font-size: 10px; }.service-mode button.active { border: 2px solid var(--signal); padding: 9px 13px; background: var(--surface-warm); color: var(--signal); }.saved-services { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 12px; border: 1px dashed var(--line); background: var(--paper-deep); }.saved-services>span { margin-right: 5px; color: var(--muted); font: 700 9px monospace; }.saved-services button { border: 1px solid var(--line); padding: 7px 10px; color: var(--ink); background: var(--panel); font-size: 10px; }.saved-services button i { display: block; color: var(--muted); font-size: 8px; font-style: normal; }.saved-services button.active { border-color: var(--signal); color: var(--signal); }
+.service-mode { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 18px; }.service-mode button { min-height: 62px; padding: 10px 14px; border: 1px solid var(--line); color: var(--ink); background: var(--paper); text-align: left; cursor: pointer; }.service-mode button b,.service-mode button span { display: block; }.service-mode button span { margin-top: 4px; color: var(--muted); font-size: 10px; }.service-mode button.active { border: 2px solid var(--signal); padding: 9px 13px; background: var(--surface-warm); color: var(--signal); }.saved-services { display: flex; flex-wrap: wrap; align-items: stretch; gap: 8px; padding: 12px; border: 1px dashed var(--line); background: var(--paper-deep); }.saved-services>span { align-self: center; margin-right: 5px; color: var(--muted); font: 700 9px monospace; }.saved-service { display: grid; grid-template-columns: 1fr auto; min-width: 190px; border: 1px solid var(--line); background: var(--panel); }.saved-service.active { border-color: var(--signal); box-shadow: inset 0 0 0 1px var(--signal); }.saved-services .saved-service-main { padding: 8px 10px; border: 0; color: var(--ink); background: transparent; text-align: left; cursor: pointer; }.saved-service-main b,.saved-service-main i,.saved-service-main small { display: block; }.saved-service-main i { margin-top: 2px; color: var(--muted); font-size: 8px; font-style: normal; }.saved-service-main small { margin-top: 5px; color: var(--signal); font-size: 8px; }.saved-services .saved-service-delete { padding: 0 10px; border: 0; border-left: 1px solid var(--line); color: var(--bad); background: transparent; cursor: pointer; font-size: 9px; }.saved-service-delete:hover { color: var(--on-solid); background: var(--bad); }
 .official-links { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; margin: 14px 0; }.official-links a { padding: 11px 12px; border: 1px solid var(--ink); color: var(--ink); background: var(--paper); text-decoration: none; }.official-links a:hover { transform: translateY(-2px); border-color: var(--signal); }.official-links b,.official-links span { display: block; }.official-links b { font-size: 11px; }.official-links span { margin-top: 4px; color: var(--signal); font-size: 9px; }
 .retry-card { margin: 18px 0; padding: 14px; border: 1px solid var(--bad); background: var(--surface-danger); }.retry-card>b { color: var(--bad); font-size: 12px; }.retry-card .failure-message { margin: 8px 0; color: var(--ink); font: 700 11px/1.55 monospace; word-break: break-word; }.failure-advice { margin: 10px 0; padding: 10px; border-left: 3px solid var(--warn); background: var(--surface-control); }.failure-advice span { color: var(--warn); font: 700 9px monospace; }.failure-advice p { margin: 5px 0 0; font-size: 10px; line-height: 1.65; color: var(--muted); }.failure-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }.failure-actions .el-button+.el-button { margin-left: 0; }.failure-actions a { color: var(--signal); font-size: 9px; }
 .advanced-controls { margin: 18px 0; padding: 16px; border: 1px solid var(--line); background: repeating-linear-gradient(135deg,var(--paper-deep),var(--paper-deep) 8px,var(--surface-control) 8px,var(--surface-control) 16px); }.advanced-title { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; }.advanced-title span { color: var(--signal); font: 700 9px monospace; letter-spacing: .14em; }.advanced-title b { font-size: 13px; }.advanced-controls p { margin: 10px 0 0; color: var(--muted); font-size: 9px; line-height: 1.5; }.advanced-controls .inline-fields { align-items: end; }.control-label { display: block; margin: 12px 0 7px; font-size: 10px; font-weight: 800; }.ratio-presets { display: grid; grid-template-columns: repeat(5,1fr); gap: 6px; }.ratio-presets button { min-height: 76px; border: 1px solid var(--line); color: var(--ink); background: var(--surface-control); cursor: pointer; }.ratio-presets button b,.ratio-presets button span,.ratio-presets button i,.ratio-presets button small { display: block; }.ratio-presets button b { font: 800 15px Rockwell,serif; }.ratio-presets button span { font-size: 9px; }.ratio-presets button i { margin-top: 4px; color: var(--muted); font: 8px monospace; }.ratio-presets button small { margin-top: 3px; color: var(--good); font-size: 7px; }.ratio-presets button.active { border: 2px solid var(--signal); color: var(--signal); background: var(--surface-hover); }

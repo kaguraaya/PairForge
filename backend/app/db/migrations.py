@@ -12,16 +12,27 @@ def ensure_schema_compatibility(engine: Engine) -> None:
                 connection.execute(
                     text("ALTER TABLE generation_tasks ADD COLUMN retry_not_before DATETIME")
                 )
+    if "provider_profiles" in table_names:
+        profile_columns = {
+            column["name"] for column in inspector.get_columns("provider_profiles")
+        }
+        if "archived" not in profile_columns:
+            with engine.begin() as connection:
+                connection.execute(
+                    text(
+                        "ALTER TABLE provider_profiles "
+                        "ADD COLUMN archived BOOLEAN NOT NULL DEFAULT 0"
+                    )
+                )
     if "questions" in table_names:
         question_columns = {column["name"] for column in inspector.get_columns("questions")}
         missing_export_columns = {
             "last_exported_image1_id",
             "last_exported_image2_id",
         } - question_columns
-        if not missing_export_columns:
-            return
-        with engine.begin() as connection:
-            for column_name in sorted(missing_export_columns):
-                connection.execute(
-                    text(f"ALTER TABLE questions ADD COLUMN {column_name} VARCHAR(36)")
-                )
+        if missing_export_columns:
+            with engine.begin() as connection:
+                for column_name in sorted(missing_export_columns):
+                    connection.execute(
+                        text(f"ALTER TABLE questions ADD COLUMN {column_name} VARCHAR(36)")
+                    )

@@ -87,7 +87,7 @@ def select_provider_profile(
     if not project:
         raise HTTPException(404, "项目不存在")
     profile = session.get(ProviderProfile, body.profile_id)
-    if not profile:
+    if not profile or profile.archived:
         raise HTTPException(404, "生图服务配置不存在")
     if profile.project_id not in {None, project.id}:
         raise HTTPException(409, "该服务尚未迁移为全局配置")

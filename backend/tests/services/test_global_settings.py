@@ -1,7 +1,21 @@
 from datetime import UTC, datetime, timedelta
 
-from app.db.models import Project, ProviderCredential, ProviderProfile
-from app.services.global_settings import initialize_global_configuration
+import pytest
+
+from app.db.models import (
+    GenerationTask,
+    Project,
+    ProviderCredential,
+    ProviderProfile,
+)
+from app.domain.enums import TaskStatus
+from app.domain.errors import InvalidStateTransitionError
+from app.security.secrets import SecretStore
+from app.services.global_settings import (
+    archive_provider_profile,
+    initialize_global_configuration,
+)
+from tests.factories import create_task_context
 
 
 def test_legacy_project_settings_become_global_without_changing_ids(session) -> None:
@@ -53,3 +67,32 @@ def test_legacy_project_settings_become_global_without_changing_ids(session) -> 
     assert older.selected_provider_profile_id == profile_id
     assert settings.q1_prompt_suffix == "新图一"
     assert settings.q2_prompt_suffix == "新图二"
+
+
+def test_profile_with_active_task_cannot_be_archived(session) -> None:
+    run, profile = create_task_context(session)
+    task = GenerationTask(
+        run_id=run.id,
+        provider_profile_id=profile.id,
+        model_id=profile.model_id,
+        request_index=1,
+        idempotency_key="active-service-delete",
+        status=TaskStatus.RUNNING,
+    )
+    session.add(task)
+    session.flush()
+
+    with pytest.raises(InvalidStateTransitionError, match="排队或生成中"):
+        archive_provider_profile(session, SecretStore(), profile)
+
+    assert profile.archived is False
+
+    task.status = TaskStatus.SUCCEEDED
+    replacement, affected_count = archive_provider_profile(
+        session,
+        SecretStore(),
+        profile,
+    )
+    assert replacement is None
+    assert affected_count == 0
+    assert profile.archived is True

@@ -21,7 +21,11 @@ from app.services.credentials import (
     sync_profile_summary,
 )
 from app.services.quota_status import local_usage
-from app.services.global_settings import get_global_settings, update_global_prompts
+from app.services.global_settings import (
+    archive_provider_profile,
+    get_global_settings,
+    update_global_prompts,
+)
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 SECRET_CONFIG_KEYS = {"api_key", "apikey", "secret", "token", "authorization", "password"}
@@ -205,7 +209,11 @@ def list_profiles(
     project_id: str | None = None, session: Session = Depends(get_session)
 ) -> list[dict[str, object]]:
     del project_id
-    query = select(ProviderProfile).order_by(ProviderProfile.updated_at.desc())
+    query = (
+        select(ProviderProfile)
+        .where(ProviderProfile.archived.is_(False))
+        .order_by(ProviderProfile.updated_at.desc())
+    )
     return [profile_payload(item, session) for item in session.scalars(query).all()]
 
 
@@ -227,6 +235,8 @@ def save_profile(
     if not is_official_host(body.provider, parsed_url.hostname):
         raise HTTPException(400, "内置提供商只能使用其官方 API 域名；其他地址请使用自定义服务")
     profile = session.get(ProviderProfile, body.id) if body.id else None
+    if body.id and (profile is None or profile.archived):
+        raise HTTPException(404, "服务配置不存在或已删除")
     if profile is None:
         profile = ProviderProfile(
             project_id=None,
@@ -268,6 +278,31 @@ def save_profile(
     return profile_payload(profile, session, session_only)
 
 
+@router.delete("/profiles/{profile_id}")
+def delete_profile(
+    profile_id: str,
+    request: Request,
+    session: Session = Depends(get_session),
+) -> dict[str, object]:
+    profile = session.get(ProviderProfile, profile_id)
+    if not profile or profile.archived:
+        raise HTTPException(404, "服务配置不存在或已删除")
+    try:
+        replacement, affected_project_count = archive_provider_profile(
+            session,
+            request.app.state.secret_store,
+            profile,
+        )
+    except DomainError as error:
+        raise HTTPException(409, str(error)) from error
+    session.commit()
+    return {
+        "deleted": True,
+        "replacement_profile_id": replacement.id if replacement else None,
+        "affected_project_count": affected_project_count,
+    }
+
+
 @router.get("/prompts")
 def get_prompts(session: Session = Depends(get_session)) -> dict[str, str]:
     settings = get_global_settings(session)
@@ -298,7 +333,8 @@ def save_prompts(
 def list_credentials(
     profile_id: str, session: Session = Depends(get_session)
 ) -> list[dict[str, object]]:
-    if not session.get(ProviderProfile, profile_id):
+    profile = session.get(ProviderProfile, profile_id)
+    if not profile or profile.archived:
         raise HTTPException(404, "服务配置不存在")
     return [
         credential_payload(item)
@@ -315,7 +351,7 @@ def upsert_credential(
     session: Session = Depends(get_session),
 ) -> dict[str, object]:
     profile = session.get(ProviderProfile, profile_id)
-    if not profile:
+    if not profile or profile.archived:
         raise HTTPException(404, "服务配置不存在")
     try:
         credential, session_only = save_credential(
@@ -345,7 +381,7 @@ def delete_credential(
     session: Session = Depends(get_session),
 ) -> dict[str, bool]:
     profile = session.get(ProviderProfile, profile_id)
-    if not profile:
+    if not profile or profile.archived:
         raise HTTPException(404, "服务配置不存在")
     try:
         disable_credential(
@@ -362,7 +398,7 @@ def clear_profile_secret(
     profile_id: str, request: Request, session: Session = Depends(get_session)
 ) -> dict[str, bool]:
     profile = session.get(ProviderProfile, profile_id)
-    if not profile:
+    if not profile or profile.archived:
         raise HTTPException(404, "服务配置不存在")
     for credential in credentials_for_profile(session, profile.id):
         disable_credential(session, request.app.state.secret_store, profile, credential.id)

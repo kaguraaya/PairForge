@@ -88,7 +88,11 @@ def capabilities_for(profile: ProviderProfile) -> ModelCapabilities:
 
 def get_estimate(body: RangeRequest, session: Session):
     profile = session.get(ProviderProfile, body.provider_profile_id)
-    if not profile or profile.project_id not in {None, body.project_id}:
+    if (
+        not profile
+        or profile.archived
+        or profile.project_id not in {None, body.project_id}
+    ):
         raise HTTPException(404, "生图服务配置不存在或不属于当前项目")
     capabilities = capabilities_for(profile)
     try:
