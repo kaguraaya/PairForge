@@ -37,7 +37,7 @@ from app.services.generation import (
     retry_task,
     start_batch,
 )
-from app.services.credentials import available_credentials
+from app.services.credentials import available_credentials, credentials_for_profile
 from app.services.quota import estimate_range
 from app.services.quota_status import preflight_profile
 from app.services.selections import select_image1, select_image2
@@ -136,6 +136,19 @@ async def start(
         if request.app.state.secret_store.get(credential.id)
     ]
     if not usable_credentials:
+        configured_credentials = [
+            credential
+            for credential in credentials_for_profile(session, profile.id)
+            if credential.enabled and credential.secret_configured
+        ]
+        if configured_credentials and all(
+            credential.manual_remaining_images == 0
+            for credential in configured_credentials
+        ):
+            raise HTTPException(
+                409,
+                "当前服务的 Key 本机保护额度均为 0；请在设置中补充额度、清空保护额度，或切换全局服务",
+            )
         raise HTTPException(409, "没有可用 API Key，请先在设置中添加或恢复密钥")
     batch = GenerationBatch(
         project_id=body.project_id,

@@ -15,8 +15,12 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
   return response.json() as Promise<T>
 }
 
-export const jsonBody = (value: unknown): Pick<RequestInit, 'body' | 'method'> => ({
-  method: 'POST',
+export type JsonMethod = 'POST' | 'PUT' | 'PATCH'
+
+export const jsonBody = (
+  value: unknown,
+  method: JsonMethod = 'POST',
+): Pick<RequestInit, 'body' | 'method'> => ({
+  method,
   body: JSON.stringify(value),
 })
-

@@ -169,6 +169,8 @@ def profile_payload(
 ) -> dict[str, object]:
     credentials = []
     for item in credentials_for_profile(session, profile.id):
+        if not item.enabled:
+            continue
         generated, cost = local_usage(session, item.id)
         payload = credential_payload(item)
         payload.update(
@@ -298,7 +300,11 @@ def list_credentials(
 ) -> list[dict[str, object]]:
     if not session.get(ProviderProfile, profile_id):
         raise HTTPException(404, "服务配置不存在")
-    return [credential_payload(item) for item in credentials_for_profile(session, profile_id)]
+    return [
+        credential_payload(item)
+        for item in credentials_for_profile(session, profile_id)
+        if item.enabled
+    ]
 
 
 @router.post("/profiles/{profile_id}/credentials")
@@ -348,7 +354,7 @@ def delete_credential(
     except DomainError as error:
         raise HTTPException(404, str(error)) from error
     session.commit()
-    return {"disabled": True}
+    return {"deleted": True}
 
 
 @router.delete("/profiles/{profile_id}/secret")

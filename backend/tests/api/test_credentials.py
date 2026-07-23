@@ -47,6 +47,52 @@ def test_profile_accepts_multiple_write_only_keys(tmp_path) -> None:
     assert b"backup-secret" not in database_bytes
 
 
+def test_saved_key_can_be_deleted_and_readded_without_losing_history_slot(tmp_path) -> None:
+    app = create_app(tmp_path / "delete", static_dir=tmp_path / "none")
+    with TestClient(app) as client:
+        profile = client.post(
+            "/api/settings/profiles",
+            json={
+                "provider": "custom",
+                "display_name": "可删除 Key 的服务",
+                "base_url": "https://example.invalid/v1",
+                "model_id": "model",
+                "api_key": "first-secret-1111",
+                "remember_secret": False,
+            },
+        ).json()
+        credential_id = profile["credentials"][0]["id"]
+
+        deleted = client.delete(
+            f"/api/settings/profiles/{profile['id']}/credentials/{credential_id}"
+        )
+
+        assert deleted.status_code == 200
+        assert deleted.json() == {"deleted": True}
+        assert app.state.secret_store.get(credential_id) is None
+        assert client.get(
+            f"/api/settings/profiles/{profile['id']}/credentials"
+        ).json() == []
+        refreshed = client.get("/api/settings/profiles").json()[0]
+        assert refreshed["secret_configured"] is False
+        assert refreshed["credentials"] == []
+
+        restored = client.post(
+            f"/api/settings/profiles/{profile['id']}/credentials",
+            json={
+                "label": "主 Key",
+                "priority": 10,
+                "api_key": "replacement-secret-2222",
+                "remember_secret": False,
+            },
+        )
+        assert restored.status_code == 200
+        assert restored.json()["id"] == credential_id
+        assert restored.json()["enabled"] is True
+        assert restored.json()["last_four"] == "2222"
+        assert len(client.get("/api/settings/profiles").json()[0]["credentials"]) == 1
+
+
 def test_volcengine_profile_accepts_only_known_api_modes(tmp_path) -> None:
     app = create_app(tmp_path / "modes", static_dir=tmp_path / "none")
     base = {
@@ -108,6 +154,14 @@ def test_credential_cannot_be_moved_or_edited_through_another_profile(tmp_path) 
         )
         assert response.status_code == 409
         assert "replacement-secret" not in response.text
+
+        delete_response = client.delete(
+            f"/api/settings/profiles/{second['id']}/credentials/{credential_id}"
+        )
+        assert delete_response.status_code == 404
+        assert len(
+            client.get(f"/api/settings/profiles/{first['id']}/credentials").json()
+        ) == 1
 
 
 def test_profile_rejects_secrets_hidden_inside_extension_config(tmp_path) -> None:

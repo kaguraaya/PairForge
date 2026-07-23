@@ -371,7 +371,7 @@ async function chooseSavedProfile(profile: ProviderProfile) {
   try {
     await api(`/projects/${project.value.id}/provider-profile`, jsonBody({
       profile_id: profile.id,
-    }))
+    }, 'PUT'))
     project.value.selected_provider_profile_id = profile.id
     ElMessage.success(`当前项目已切换到全局服务“${profile.display_name}”`)
   } catch (error) { showError(error) }
@@ -508,15 +508,19 @@ async function addCredential() {
   } catch (error) { showError(error) } finally { busy.value = false }
 }
 
-async function disableCredential(credentialId: string) {
+async function deleteCredential(credentialId: string) {
   if (!profileForm.id) return
   try {
-    await ElMessageBox.confirm('停用后将删除该密钥在当前会话及 Windows 凭据管理器中的值。', '停用密钥', { type: 'warning' })
+    await ElMessageBox.confirm(
+      '删除后，该 Key 会从服务库中移除，并从当前会话及 Windows 凭据管理器清除；历史用量记录仍会保留。',
+      '删除这个 API Key？',
+      { confirmButtonText: '确认删除', cancelButtonText: '保留', type: 'warning' },
+    )
     await api(`/settings/profiles/${profileForm.id}/credentials/${credentialId}`, { method: 'DELETE' })
     profiles.value = await api<ProviderProfile[]>(`/settings/profiles?project_id=${project.value?.id}`)
     settingsPreflight.value = null
     if (credentialForm.id === credentialId) resetCredentialForm()
-    ElMessage.success('密钥已停用')
+    ElMessage.success('Key 已删除，历史用量记录仍保留')
   } catch (error) { if (error !== 'cancel') showError(error) }
 }
 
@@ -1035,7 +1039,7 @@ onBeforeUnmount(() => {
                       <div v-else><b>未设置本机保护额度</b><span>点击编辑填写后，生成时会逐张扣减并显示进度</span></div>
                     </div>
                     <p v-if="credential.preflight_message">{{ credential.preflight_message }}</p>
-                    <div class="quota-actions"><button @click="editCredential(credential)">编辑 / 补充额度</button><button v-if="credential.enabled" class="danger" @click="disableCredential(credential.id)">停用</button></div>
+                    <div class="quota-actions"><button @click="editCredential(credential)">编辑 / 补充额度</button><button class="danger" @click="deleteCredential(credential.id)">删除 Key</button></div>
                   </article>
                   <div v-if="!credentialRows.length" class="key-empty compact"><b>还没有 Key</b><p>在下方添加第一把；之后可继续添加，不限一把。</p></div>
                 </div>
@@ -1085,10 +1089,10 @@ onBeforeUnmount(() => {
         <div class="section-title"><span>05 / ABOUT</span><h1>关于 PairForge</h1><p>题意先立，双图后成；让一整套题库的画面生产保持有序、可续、可追溯。</p></div>
         <div class="about-grid">
           <article class="about-intro">
-            <span>PAIRFORGE / {{ systemInfo?.version || '0.5.0' }}</span>
+            <span>PAIRFORGE / {{ systemInfo?.version || '0.5.1' }}</span>
             <h2>{{ systemInfo?.description || 'PairForge：面向《这是谐音梗》创意工坊题库制作的批量 AI 配图工具，支持自定义生图 API，简化成对图片的生成与管理流程。' }}</h2>
             <p>PairForge 服务于《这是谐音梗》创意工坊从题库文档到成对配图成品的制作环节。它坚持同题图一先生成并确定，随后才让图二引用该图继续创作；题目之间、模型之间和 API Key 之间都保持清晰边界。</p>
-            <div class="about-version"><b>VERSION</b><strong>{{ systemInfo?.version || '0.5.0' }}</strong><em>Windows · Local First</em></div>
+            <div class="about-version"><b>VERSION</b><strong>{{ systemInfo?.version || '0.5.1' }}</strong><em>Windows · Local First</em></div>
           </article>
           <a class="repository-card" :href="systemInfo?.repository_url || 'https://github.com/kaguraaya/PairForge'" target="_blank" rel="noopener noreferrer">
             <span>OPEN SOURCE REPOSITORY</span><b>kaguraaya / PairForge</b><p>查看源码、模板、构建说明与后续版本</p><i>↗</i>
