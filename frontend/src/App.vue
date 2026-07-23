@@ -365,6 +365,18 @@ function editProfile(profile: ProviderProfile) {
   resetCredentialForm()
 }
 
+async function chooseSavedProfile(profile: ProviderProfile) {
+  editProfile(profile)
+  if (!project.value || project.value.selected_provider_profile_id === profile.id) return
+  try {
+    await api(`/projects/${project.value.id}/provider-profile`, jsonBody({
+      profile_id: profile.id,
+    }))
+    project.value.selected_provider_profile_id = profile.id
+    ElMessage.success(`当前项目已切换到全局服务“${profile.display_name}”`)
+  } catch (error) { showError(error) }
+}
+
 function credentialStatus(status: string) {
   return ({ active: '可用', cooldown: '冷却中', exhausted: '额度耗尽', invalid: '无效', disabled: '已停用' } as Record<string, string>)[status] || status
 }
@@ -528,13 +540,13 @@ async function refreshSettingsQuota() {
 async function savePromptSuffixes() {
   if (!project.value) return
   try {
-    await api(`/projects/${project.value.id}/prompts`, {
+    await api('/settings/prompts', {
       method: 'PUT', body: JSON.stringify({
         q1_prompt_suffix: project.value.q1_prompt_suffix || '',
         q2_prompt_suffix: project.value.q2_prompt_suffix || '',
       }), headers: { 'Content-Type': 'application/json' },
     })
-    ElMessage.success('两组通用提示词已分别保存')
+    ElMessage.success('两组通用提示词已全局保存，所有项目立即共用')
   } catch (error) { showError(error) }
 }
 
@@ -901,7 +913,7 @@ onBeforeUnmount(() => {
       </section>
 
       <section v-else-if="section === 'settings'" class="page settings-page">
-        <div class="section-title"><span>03 / SETTINGS</span><h1>完整生图设置</h1><p>模型、画幅、候选数量、Key 与额度都在这一页；API 密钥不会写入项目数据库。</p></div>
+        <div class="section-title"><span>03 / GLOBAL SETTINGS</span><h1>全局生图设置</h1><p>模型、画幅、候选数量、全部 Key 与通用提示词独立于题库保存，所有项目直接共用。</p></div>
         <template v-if="project">
           <nav class="settings-jump" aria-label="设置页快捷导航">
             <button @click="scrollSettings('model-settings')"><span>01</span>模型与比例</button>
@@ -917,8 +929,8 @@ onBeforeUnmount(() => {
                 <button :class="{ active: profileForm.provider === 'custom' }" @click="newCustomProfile"><b>自定义服务</b><span>OpenAI 兼容接口</span></button>
               </div>
               <div v-if="profiles.length" class="saved-services">
-                <span>已保存服务</span>
-                <button v-for="p in profiles" :key="p.id" @click="editProfile(p)" :class="{ active: p.id === profileForm.id }">{{ p.display_name }} <i>{{ p.secret_configured ? `Key ····${p.last_four}` : '未配置 Key' }}</i></button>
+                <span>全局服务库 · 所有项目共用</span>
+                <button v-for="p in profiles" :key="p.id" @click="chooseSavedProfile(p)" :class="{ active: p.id === profileForm.id }">{{ p.display_name }} <i>{{ p.secret_configured ? `Key ····${p.last_four}` : '未配置 Key' }}</i></button>
               </div>
               <label>已验证模型</label>
               <el-select v-if="profileForm.provider !== 'custom'" v-model="profileForm.model_id" style="width: 100%" @change="chooseModel">
@@ -1046,7 +1058,8 @@ onBeforeUnmount(() => {
                 <div><label>第一张图通用提示词 <em>IMAGE 01</em></label><el-input v-model="project.q1_prompt_suffix" type="textarea" :rows="5" placeholder="为空时不修改文档提示词" /></div>
                 <div><label>第二张图通用提示词 <em>IMAGE 02</em></label><el-input v-model="project.q2_prompt_suffix" type="textarea" :rows="5" placeholder="可与第一张图完全不同" /></div>
               </div>
-              <el-button type="primary" @click="savePromptSuffixes">保存通用提示词</el-button>
+              <p class="global-settings-note"><b>全局共用</b> 保存后会用于所有现有项目和以后导入的新题库；需要不同画风时可随时在这里修改。</p>
+              <el-button type="primary" @click="savePromptSuffixes">全局保存通用提示词</el-button>
             </article>
           </div>
         </template>
@@ -1072,10 +1085,10 @@ onBeforeUnmount(() => {
         <div class="section-title"><span>05 / ABOUT</span><h1>关于 PairForge</h1><p>题意先立，双图后成；让一整套题库的画面生产保持有序、可续、可追溯。</p></div>
         <div class="about-grid">
           <article class="about-intro">
-            <span>PAIRFORGE / {{ systemInfo?.version || '0.4.0' }}</span>
+            <span>PAIRFORGE / {{ systemInfo?.version || '0.5.0' }}</span>
             <h2>{{ systemInfo?.description || 'PairForge：面向《这是谐音梗》创意工坊题库制作的批量 AI 配图工具，支持自定义生图 API，简化成对图片的生成与管理流程。' }}</h2>
             <p>PairForge 服务于《这是谐音梗》创意工坊从题库文档到成对配图成品的制作环节。它坚持同题图一先生成并确定，随后才让图二引用该图继续创作；题目之间、模型之间和 API Key 之间都保持清晰边界。</p>
-            <div class="about-version"><b>VERSION</b><strong>{{ systemInfo?.version || '0.4.0' }}</strong><em>Windows · Local First</em></div>
+            <div class="about-version"><b>VERSION</b><strong>{{ systemInfo?.version || '0.5.0' }}</strong><em>Windows · Local First</em></div>
           </article>
           <a class="repository-card" :href="systemInfo?.repository_url || 'https://github.com/kaguraaya/PairForge'" target="_blank" rel="noopener noreferrer">
             <span>OPEN SOURCE REPOSITORY</span><b>kaguraaya / PairForge</b><p>查看源码、模板、构建说明与后续版本</p><i>↗</i>
@@ -1172,7 +1185,7 @@ onBeforeUnmount(() => {
 .guidance-control { margin: 16px 0 8px; padding: 14px 16px 10px; border: 1px solid var(--ink); background: var(--surface-control); }.guidance-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }.guidance-heading>div { display: flex; flex-direction: column; gap: 3px; }.guidance-heading label { font-size: 11px; font-weight: 800; }.guidance-heading span { color: var(--signal); font-size: 9px; }.guidance-control :deep(.el-switch) { --el-switch-on-color: var(--signal); min-width: 82px; }.guidance-control :deep(.el-slider) { margin: 18px 0 28px; }.guidance-note { display: grid; grid-template-columns: auto 1fr auto 1fr auto; align-items: center; gap: 7px; padding-top: 8px; border-top: 1px dashed var(--line); font-size: 9px; }.guidance-note b { color: var(--signal); }.guidance-note span { color: var(--muted); }.guidance-note button { border: 0; color: var(--signal); background: transparent; cursor: pointer; font-size: 9px; }.provider-default-note { display: flex; gap: 9px; margin-top: 12px; padding: 10px; border-left: 3px solid var(--good); background: var(--paper-deep); font-size: 9px; }.provider-default-note b { color: var(--good); }.provider-default-note span { color: var(--muted); }
 .single-output-switch { display: flex; align-items: center; gap: 16px; padding: 16px; border: 1px solid var(--ink); background: var(--paper-deep); }.single-output-switch b { font-size: 14px; }.single-output-switch p { margin: 4px 0 0; color: var(--muted); font-size: 10px; }.candidate-defaults { display: grid; grid-template-columns: 220px 220px 1fr; align-items: end; gap: 16px; }.candidate-defaults.disabled { opacity: .58; }.candidate-defaults p { margin: 0 0 6px; color: var(--muted); font-size: 10px; line-height: 1.6; }
 .quota-status-strip { display: grid; grid-template-columns: auto auto minmax(240px,1fr) auto auto; align-items: center; gap: 10px; padding: 12px 14px; background: var(--solid); color: var(--on-solid); }.quota-status-strip>b { color: var(--on-solid); font: 900 28px Rockwell,serif; }.quota-status-strip>span { color: var(--muted); font-size: 9px; }.quota-status-strip>p { margin: 0; padding-left: 12px; border-left: 1px solid var(--line); font-size: 9px; line-height: 1.5; }.quota-status-strip>a { color: #ffbf8c; font-size: 9px; }.quota-cards { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; margin-top: 12px; }.quota-cards>article { padding: 14px; border: 1px solid var(--line); background: var(--paper); }.quota-cards>article.exhausted,.quota-cards>article.invalid,.quota-cards>article.disabled { border-left: 5px solid var(--bad); }.quota-card-head { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: start; }.quota-card-head b,.quota-card-head span { display: block; }.quota-card-head span { margin-top: 3px; color: var(--muted); font-size: 9px; }.quota-card-head em { font: 10px monospace; font-style: normal; }.quota-card-head small { color: var(--good); }.quota-progress { margin-top: 13px; }.quota-progress.unknown :deep(.el-progress-bar__inner) { background: var(--line); }.quota-progress>div { display: flex; justify-content: space-between; gap: 10px; margin-top: 7px; }.quota-progress b { font-size: 10px; }.quota-progress span { color: var(--muted); font-size: 9px; }.quota-cards article>p { margin: 9px 0 0; color: var(--muted); font-size: 9px; }.quota-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 10px; }.quota-actions button,.credential-editor-title button { border: 0; color: var(--signal); background: transparent; font-size: 9px; cursor: pointer; }.quota-actions button.danger { color: var(--bad); }.key-empty { padding: 24px; border: 1px dashed var(--line); text-align: center; background: var(--paper-deep); }.key-empty.compact { min-height: 130px; display: grid; place-content: center; }.key-empty p { color: var(--muted); font-size: 11px; }
-.credential-add { scroll-margin-top: 150px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; margin-top: 14px; padding: 16px; border-top: 3px solid var(--signal); background: var(--paper-deep); }.credential-editor-title { grid-column: 1/-1; display: flex; justify-content: space-between; }.credential-add label { display: block; margin: 0 0 5px; font-size: 9px; font-weight: 800; }.credential-add .key-field { grid-column: 1/-1; }.credential-add>.el-checkbox { align-self: center; }.prompt-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.credential-add { scroll-margin-top: 150px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; margin-top: 14px; padding: 16px; border-top: 3px solid var(--signal); background: var(--paper-deep); }.credential-editor-title { grid-column: 1/-1; display: flex; justify-content: space-between; }.credential-add label { display: block; margin: 0 0 5px; font-size: 9px; font-weight: 800; }.credential-add .key-field { grid-column: 1/-1; }.credential-add>.el-checkbox { align-self: center; }.prompt-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }.global-settings-note { margin: 18px 0 0; padding: 11px 13px; border-left: 4px solid var(--good); color: var(--muted); background: var(--paper-deep); font-size: 11px; line-height: 1.65; }.global-settings-note b { margin-right: 8px; color: var(--good); }
 .export-summary { border: 1px solid var(--ink); background: var(--panel); padding: 20px; display: grid; grid-template-columns: 220px 1fr auto; align-items: center; }.export-summary div span { display: block; font-size: 10px; color: var(--muted); }.export-summary div b { font: 900 48px Rockwell,serif; }.export-summary div em { font-style: normal; color: var(--muted); }.export-summary code { background: var(--paper-deep); padding: 3px; }.final-pairs { margin-top: 22px; display: grid; grid-template-columns: repeat(4,1fr); gap: 12px; }.final-pairs article { display: grid; grid-template: auto 1fr / 1fr 1fr; gap: 1px; background: var(--solid); border: 1px solid var(--ink); }.final-pairs header { grid-column: 1/-1; background: var(--panel); padding: 10px; display: flex; gap: 8px; }.final-pairs article>div { aspect-ratio: 4/3; position: relative; background: var(--paper-deep); }.final-pairs img { width: 100%; height: 100%; object-fit: contain; }.final-pairs i { position: absolute; bottom: 5px; right: 5px; color: var(--on-solid); background: var(--solid); font-style: normal; font: 9px monospace; padding: 3px; }.export-result { margin-top: 24px; border-left: 8px solid var(--good); background: var(--panel); padding: 18px; }.export-result b { color: var(--good); }.export-result p { font-family: monospace; word-break: break-all; }.export-result span { margin-right: 20px; }
 .range-form label { display: block; font-size: 11px; font-weight: 800; margin-bottom: 6px; }.range-summary { display: grid; grid-template-columns: auto auto auto 1fr; align-items: baseline; gap: 7px; padding: 15px 18px; color: var(--on-solid); background: var(--solid); }.range-summary>span { color: var(--muted); font: 700 9px monospace; }.range-summary>b { color: var(--on-solid); font: 900 30px Rockwell,serif; }.range-summary>em { color: var(--muted); font-size: 10px; font-style: normal; }.range-summary>p { margin: 0; text-align: right; font-size: 10px; }.range-summary i { padding: 0 6px; color: var(--signal); font-style: normal; }.range-slider-shell { margin: 14px 0 8px; padding: 14px 24px 22px; border: 1px solid var(--line); background: var(--paper-deep); }.range-slider-heading { display: flex; justify-content: space-between; gap: 16px; margin-bottom: 4px; }.range-slider-heading b { font-size: 11px; }.range-slider-heading span { color: var(--muted); font-size: 9px; }.range-slider-shell :deep(.el-slider) { margin: 22px 0 8px; }.range-presets { display: flex; gap: 6px; margin-bottom: 16px; }.range-presets button { padding: 7px 10px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); cursor: pointer; font-size: 9px; }.range-presets button:hover { border-color: var(--signal); color: var(--signal); }.range-codes { display: grid; grid-template-columns: 1fr auto 1fr; align-items: end; gap: 12px; margin-bottom: 20px; }.range-codes>b { padding-bottom: 8px; color: var(--signal); }.range-codes .el-select { width: 100%; }.candidate-counts { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 16px 0 20px; }.candidate-counts.disabled { opacity: .5; }.parallelism-control { margin: 8px 0 22px; padding: 14px 22px 18px; border: 1px solid var(--ink); background: var(--surface-control); }.parallelism-control>div { display: flex; justify-content: space-between; }.parallelism-control b { font-size: 11px; }.parallelism-control span,.parallelism-control p { color: var(--muted); font-size: 9px; }.parallelism-control :deep(.el-slider) { margin: 22px 0 18px; }.parallelism-control p { margin: 0; line-height: 1.5; }.quota-ticket { border: 1px solid var(--ink); background: var(--paper-deep); padding: 18px; }.quota-ticket>span { font: 700 9px monospace; color: var(--signal); }.quota-ticket>div { display: flex; align-items: baseline; gap: 8px; margin: 12px 0; }.quota-ticket>div b { font: 800 32px Rockwell,serif; }.quota-ticket>div i { font-style: normal; font-size: 10px; color: var(--muted); margin-right: 12px; }.quota-ticket p { font-size: 13px; }.quota-ticket small { display: block; color: var(--warn); line-height: 1.5; margin-bottom: 12px; }.quota-ticket .range-preflight { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center; margin: 12px 0; padding: 10px; border: 1px solid var(--good); background: rgba(34,160,107,.06); }.quota-ticket .range-preflight.blocked { border-color: var(--bad); background: rgba(181,52,52,.06); }.range-preflight>b { color: var(--good); font-size: 11px; }.range-preflight.blocked>b { color: var(--bad); }.range-preflight>p { margin: 0; font-size: 9px; line-height: 1.5; }.range-preflight>a { color: var(--signal); font-size: 9px; }
 @media (max-width: 1280px) { .workbench-grid { grid-template-columns: 200px minmax(480px,1fr) 270px; }.page { padding: 28px; }.project-grid { grid-template-columns: repeat(2,1fr); }.final-pairs { grid-template-columns: repeat(3,1fr); }.candidate-defaults { grid-template-columns: 190px 190px 1fr; }.quota-status-strip { grid-template-columns: auto auto 1fr auto; }.quota-status-strip>.el-button { grid-column: 4; }.quota-status-strip>a { grid-column: 3; }.batch-progress-float { grid-template-columns: 176px minmax(190px,1fr) auto 86px; gap: 10px; padding: 10px 12px; }.batch-progress-metrics { gap: 6px; }.batch-progress-metrics span { font-size: 7px; }.batch-progress-metrics b { font-size: 14px; } }

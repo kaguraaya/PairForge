@@ -20,6 +20,7 @@ from app.queue.scheduler import TaskScheduler
 from app.security.secrets import SecretStore
 from app.services.worker import execute_task
 from app.services.credentials import migrate_legacy_credentials, reconcile_persisted_credentials
+from app.services.global_settings import initialize_global_configuration
 from app.meta import APP_NAME, APP_VERSION
 
 
@@ -45,6 +46,7 @@ def create_app(data_dir: Path | None = None, static_dir: Path | None = None) -> 
         application.state.scheduler = scheduler
         await scheduler.start()
         with Session(engine) as session:
+            initialize_global_configuration(session)
             migrate_legacy_credentials(session, application.state.secret_store)
             reconcile_persisted_credentials(session, application.state.secret_store)
             queued, _interrupted = recover_interrupted_tasks(session)

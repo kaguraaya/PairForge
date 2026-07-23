@@ -35,6 +35,7 @@ from app.services.generation import (
     start_batch,
 )
 from app.services.selections import select_image1
+from app.services.global_settings import get_global_settings
 
 
 def context(session, outputs: int = 1):
@@ -112,6 +113,20 @@ def test_second_run_requires_selected_first_image(session) -> None:
     _, _, q1, _, batch = context(session)
     with pytest.raises(MissingReferenceImageError):
         create_run(session, batch, q1, GenerationStage.IMAGE2)
+
+
+def test_generation_uses_global_prompt_suffix_instead_of_project_copy(session) -> None:
+    project, _, q1, _, batch = context(session)
+    settings = get_global_settings(session)
+    settings.q1_prompt_suffix = "全局图一要求"
+    project.q1_prompt_suffix = "项目旧值"
+    session.flush()
+
+    run, _task = create_run(session, batch, q1, GenerationStage.IMAGE1)
+
+    assert run.global_suffix == "全局图一要求"
+    assert "全局图一要求" in run.prompt_snapshot
+    assert "项目旧值" not in run.prompt_snapshot
 
 
 def test_cross_question_selection_is_rejected(session) -> None:

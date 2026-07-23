@@ -30,7 +30,7 @@ export interface ModelInfo {
 
 export interface ProviderProfile {
   id: string
-  project_id: string
+  project_id?: string | null
   provider: string
   display_name: string
   base_url: string

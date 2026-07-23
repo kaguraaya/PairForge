@@ -24,6 +24,7 @@ from app.domain.enums import (
 from app.domain.errors import InvalidStateTransitionError, MissingReferenceImageError
 from app.services.prompts import compose_prompt
 from app.services.selections import select_image1, select_image2
+from app.services.global_settings import get_global_settings
 
 
 TERMINAL_TASKS = {
@@ -104,13 +105,14 @@ def create_run(
     project = session.get(Project, question.project_id)
     if project is None:
         raise InvalidStateTransitionError("项目不存在")
+    global_settings = get_global_settings(session)
     if stage == GenerationStage.IMAGE1:
         prompt, requested, semantics = (
             question.image1_prompt,
             batch.q1_requested_outputs,
             batch.q1_output_semantics,
         )
-        project_suffix = project.q1_prompt_suffix
+        project_suffix = global_settings.q1_prompt_suffix
         reference_id = None
     else:
         if not question.selected_image1_id:
@@ -123,7 +125,7 @@ def create_run(
             batch.q2_requested_outputs,
             batch.q2_output_semantics,
         )
-        project_suffix = project.q2_prompt_suffix
+        project_suffix = global_settings.q2_prompt_suffix
         reference_id = reference.id
     suffix = project_suffix
     run = GenerationRun(

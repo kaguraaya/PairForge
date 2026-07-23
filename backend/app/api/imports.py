@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_session
-from app.db.models import Project, Question
+from app.db.models import Project, ProviderProfile, Question
 from app.importers.dispatcher import parse_question_bank
 
 router = APIRouter(prefix="/api/imports", tags=["imports"])
@@ -94,6 +94,13 @@ def confirm_import(
         return {"project_id": existing.id, "question_count": len(preview.questions), "reused": True}
     project = Project(name=body.project_name.strip() or source.stem, workspace_path="")
     project.source_sha256 = preview.source_sha256
+    default_profile = session.scalar(
+        select(ProviderProfile)
+        .where(ProviderProfile.project_id.is_(None))
+        .order_by(ProviderProfile.updated_at.desc())
+    )
+    if default_profile:
+        project.selected_provider_profile_id = default_profile.id
     session.add(project)
     session.flush()
     project_root = request.app.state.config.data_dir / "projects" / project.id

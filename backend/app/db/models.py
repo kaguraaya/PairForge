@@ -60,6 +60,14 @@ class Project(TimestampMixin, Base):
     )
 
 
+class AppSettings(TimestampMixin, Base):
+    __tablename__ = "app_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    q1_prompt_suffix: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    q2_prompt_suffix: Mapped[str] = mapped_column(Text, default="", nullable=False)
+
+
 class ProviderProfile(TimestampMixin, Base):
     __tablename__ = "provider_profiles"
 

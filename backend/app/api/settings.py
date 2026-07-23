@@ -21,6 +21,7 @@ from app.services.credentials import (
     sync_profile_summary,
 )
 from app.services.quota_status import local_usage
+from app.services.global_settings import get_global_settings, update_global_prompts
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 SECRET_CONFIG_KEYS = {"api_key", "apikey", "secret", "token", "authorization", "password"}
@@ -49,6 +50,11 @@ class CredentialInput(BaseModel):
     remember_secret: bool = False
     enabled: bool = True
     manual_remaining_images: int | None = Field(default=None, ge=0)
+
+
+class PromptSettingsInput(BaseModel):
+    q1_prompt_suffix: str = ""
+    q2_prompt_suffix: str = ""
 
 
 def config_contains_secret(value: object) -> bool:
@@ -196,9 +202,8 @@ def profile_payload(
 def list_profiles(
     project_id: str | None = None, session: Session = Depends(get_session)
 ) -> list[dict[str, object]]:
-    query = select(ProviderProfile)
-    if project_id:
-        query = query.where(ProviderProfile.project_id == project_id)
+    del project_id
+    query = select(ProviderProfile).order_by(ProviderProfile.updated_at.desc())
     return [profile_payload(item, session) for item in session.scalars(query).all()]
 
 
@@ -222,7 +227,7 @@ def save_profile(
     profile = session.get(ProviderProfile, body.id) if body.id else None
     if profile is None:
         profile = ProviderProfile(
-            project_id=body.project_id,
+            project_id=None,
             provider=body.provider,
             display_name=body.display_name,
             base_url=body.base_url,
@@ -230,6 +235,7 @@ def save_profile(
         )
         session.add(profile)
         session.flush()
+    profile.project_id = None
     profile.provider = body.provider
     profile.display_name = body.display_name
     profile.base_url = body.base_url.rstrip("/")
@@ -258,6 +264,32 @@ def save_profile(
             project.selected_provider_profile_id = profile.id
     session.commit()
     return profile_payload(profile, session, session_only)
+
+
+@router.get("/prompts")
+def get_prompts(session: Session = Depends(get_session)) -> dict[str, str]:
+    settings = get_global_settings(session)
+    return {
+        "q1_prompt_suffix": settings.q1_prompt_suffix,
+        "q2_prompt_suffix": settings.q2_prompt_suffix,
+    }
+
+
+@router.put("/prompts")
+def save_prompts(
+    body: PromptSettingsInput,
+    session: Session = Depends(get_session),
+) -> dict[str, str]:
+    settings = update_global_prompts(
+        session,
+        body.q1_prompt_suffix,
+        body.q2_prompt_suffix,
+    )
+    session.commit()
+    return {
+        "q1_prompt_suffix": settings.q1_prompt_suffix,
+        "q2_prompt_suffix": settings.q2_prompt_suffix,
+    }
 
 
 @router.get("/profiles/{profile_id}/credentials")
